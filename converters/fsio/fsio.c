@@ -281,7 +281,9 @@
  * it available or do not wish to use it, comment out the following line.
  * You may also need to comment out the LIBS= line in Makefile.
  */
+#ifndef FSIO_NO_READLINE
 #define USE_READLINE
+#endif
 
 #ifdef USE_READLINE
 #include <readline/readline.h>
@@ -504,7 +506,7 @@ static void FSioInit(void)
  --*/
 void Usage(void)
 {
-  fprintf(stderr, "Usage: fsio [cmdFile]\n");
+  fprintf(stderr, "Usage: fsio [-qv] [cmdFile]\n");
   exit(1);
 }
 
@@ -812,7 +814,7 @@ static void doMount(void)
   struct FSdef *filesys;
   FILE *container;
   int status;
-  char *mode = SWISSET('r') ? "r" : "r+";
+  char *mode = SWISSET('r') ? "rb" : "r+b";
 
   if (checkDev(words[0]) != 0) { 
     if (lookupDev(words[0]) == NULL) {
@@ -964,7 +966,7 @@ static void doNewfs(void)
         return;
     }
 
-    if ((mount.container = fopen(words[0], "w+")) != NULL) {
+    if ((mount.container = fopen(words[0], "w+b")) != NULL) {
       off_t offset =  size ? size - 1 : 0;
 
       mount.skip = 0;
@@ -972,8 +974,10 @@ static void doNewfs(void)
       /*
        * If an empty file is valid, we are all done
        */
-      if ((filesys->flags & FS_EMPTYFILE) != 0)
+      if ((filesys->flags & FS_EMPTYFILE) != 0) {
+        fclose(mount.container);
         return;
+      }
 
       if ((fseeko(mount.container, offset + mount.skip, SEEK_SET) == 0) &&
           (fwrite(&ch, 1, 1, mount.container) == 1)) {

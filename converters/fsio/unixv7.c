@@ -37,7 +37,6 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <fnmatch.h>
-#include <regex.h>
 
 #include "fsio.h"
 
@@ -600,22 +599,22 @@ static int addComponent(
   char cname[V7_DIRSIZ];
 
   memset(cname, 0, sizeof(cname));
-  strncpy(cname, name, V7_DIRSIZ);
+  memcpy(cname, name, strnlen(name, sizeof(cname)));
 
   if (unixv7ReadInode(mount, dino, &inode)) {
     if ((le16toh(inode.di_mode) & V7_IFMT) == V7_IFDIR) {
       off_t offset = 0;
-      uint32_t lbn = 0xFFFFFFFF, pbn;
+      uint32_t lbn = 0xFFFFFFFF, pbn = 0;
+      uint8_t buf[V7_BLOCKSIZE];
 
       for (;;) {
-        uint8_t buf[V7_BLOCKSIZE];
         struct v7_direct *dp;
         int upd = 0;
 
         if (lbn != (offset >> V7_BSHIFT)) {
           lbn = offset >> V7_BSHIFT;
-          if ((pbn = bmap(mount, &inode, ino, lbn, V7_WRITE)) == 0) {
-            ERROR("%s: Error mapping lbn %u on inode %u\n", command, lbn, ino);
+          if ((pbn = bmap(mount, &inode, dino, lbn, V7_WRITE)) == 0) {
+            ERROR("%s: Error mapping lbn %u on inode %u\n", command, lbn, dino);
             return 0;
           }
           if (unixv7ReadBlock(mount, pbn, buf) == 0)
@@ -734,15 +733,15 @@ static int lookupComponent(
   char cname[V7_DIRSIZ];
 
   memset(cname, 0, sizeof(cname));
-  strncpy(cname, name, V7_DIRSIZ);
+  memcpy(cname, name, strnlen(name, sizeof(cname)));
     
   if (unixv7ReadInode(mount, ino, &inode)) {
     if ((le16toh(inode.di_mode) & V7_IFMT) == V7_IFDIR) {
       off_t offset = 0;
-      uint32_t lbn = 0xFFFFFFFF, pbn;
+      uint32_t lbn = 0xFFFFFFFF, pbn = 0;
+      uint8_t buf[V7_BLOCKSIZE];
 
       while (offset < V7_LONG(le32toh(inode.di_size))) {
-        uint8_t buf[V7_BLOCKSIZE];
         struct v7_direct *dp;
 
         if (lbn != (offset >> V7_BSHIFT)) {
@@ -797,10 +796,10 @@ static int isDirectoryEmpty(
 )
 {
   off_t offset = 0;
-  uint32_t lbn = 0xFFFFFFFF, pbn;
+  uint32_t lbn = 0xFFFFFFFF, pbn = 0;
+  uint8_t buf[V7_BLOCKSIZE];
 
   while (offset < V7_LONG(le32toh(inode->di_size))) {
-    uint8_t buf[V7_BLOCKSIZE];
     struct v7_direct *dp;
 
     if (lbn != (offset >> V7_BSHIFT)) {
@@ -858,15 +857,15 @@ static int unlinkComponent(
   char cname[V7_DIRSIZ];
 
   memset(cname, 0, sizeof(cname));
-  strncpy(cname, name, V7_DIRSIZ);
+  memcpy(cname, name, strnlen(name, sizeof(cname)));
     
   if (unixv7ReadInode(mount, ino, &inode)) {
     if ((le16toh(inode.di_mode) & V7_IFMT) == V7_IFDIR) {
       off_t offset = 0;
-      uint32_t lbn = 0xFFFFFFFF, pbn;
+      uint32_t lbn = 0xFFFFFFFF, pbn = 0;
+      uint8_t buf[V7_BLOCKSIZE];
 
       while (offset < V7_LONG(le32toh(inode.di_size))) {
-        uint8_t buf[V7_BLOCKSIZE];
         struct v7_direct *dp;
 
         if (lbn != (offset >> V7_BSHIFT)) {
@@ -968,7 +967,8 @@ static void walkTree(
   if (unixv7ReadInode(mount, ino, &inode)) {
     if ((le16toh(inode.di_mode) & V7_IFMT) == V7_IFDIR) {
       off_t offset = 0;
-      uint32_t lbn = 0xFFFFFFFF, pbn;
+      uint32_t lbn = 0xFFFFFFFF, pbn = 0;
+      uint8_t buf[V7_BLOCKSIZE];
 
       /*
        * If we expect to create a new file, call the action routine now to
@@ -980,7 +980,6 @@ static void walkTree(
       }
   
       while (offset < V7_LONG(le32toh(inode.di_size))) {
-        uint8_t buf[V7_BLOCKSIZE];
         struct v7_direct *dp;
 
         if (lbn != (offset >> V7_BSHIFT)) {
@@ -1234,10 +1233,10 @@ static void dumpDirectory(
   if (unixv7ReadInode(mount, ino, &inode)) {
     if ((le16toh(inode.di_mode) & V7_IFMT) == V7_IFDIR) {
       off_t offset = 0;
-      uint32_t lbn = 0xFFFFFFFF, pbn;
+      uint32_t lbn = 0xFFFFFFFF, pbn = 0;
+      uint8_t buf[V7_BLOCKSIZE];
 
       while (offset < V7_LONG(le32toh(inode.di_size))) {
-        uint8_t buf[V7_BLOCKSIZE];
         struct v7_direct *dp;
         
         if (lbn != (offset >> V7_BSHIFT)) {
@@ -1507,8 +1506,8 @@ static int validate(
          * Check the free inodes in the superblock.
          */
         if (le16toh(sb->s_ninode) > 0) {
-          for (i = le16toh(sb->s_ninode); i >= 0; i--) {
-            if (le16toh(sb->s_inode[i]) >=
+          for (i = le16toh(sb->s_ninode) - 1; i >= 0; i--) {
+            if (le16toh(sb->s_inode[i]) >
                 ((le16toh(sb->s_isize) - 2) * V7_INOPB)) {
               ERROR("Bad inode number in superblock (%u)\n",
                     le16toh(sb->s_inode[i]));
@@ -1629,10 +1628,10 @@ static void unixv7DisplayDir(
     
     if ((le16toh(inode.di_mode) & V7_IFMT) == V7_IFDIR) {
       off_t offset = 0;
-      uint32_t lbn = 0xFFFFFFFF, pbn;
+      uint32_t lbn = 0xFFFFFFFF, pbn = 0;
+      uint8_t buf[V7_BLOCKSIZE];
       
       while (offset < V7_LONG(le32toh(inode.di_size))) {
-        uint8_t buf[V7_BLOCKSIZE];
         struct v7_direct *dp;
 
         if (lbn != (offset >> V7_BSHIFT)) {
@@ -2348,20 +2347,20 @@ static int unixv7Newfs(
    */
   if (SWISSET('i')) {
     char *endptr;
-    uint16_t n = strtoul(SWGETVAL('i'), &endptr, 10);
+    unsigned long n = strtoul(SWGETVAL('i'), &endptr, 10);
 
-    if ((n < V7_INOPB) || (n > 65500)) {
+    if ((*endptr != '\0') || (n < V7_INOPB) || (n > 65500)) {
       fprintf(stderr,
               "newfs: -i parameter must be in the range %d - 65500\n", V7_INOPB);
       return 0;
 
-      if ((n / V7_INOPB) > (size / 2)) {
-        fprintf(stderr,
-                "newfs: inodes cannot occupy more than 50%% of the disk\n");
-        return 0;
-      }
-      inodeBlocks = (n + V7_INOPB - 1) / V7_INOPB;
     }
+    if (((n + V7_INOPB - 1) / V7_INOPB) > (size / 2)) {
+      fprintf(stderr,
+              "newfs: inodes cannot occupy more than 50%% of the disk\n");
+      return 0;
+    }
+    inodeBlocks = (n + V7_INOPB - 1) / V7_INOPB;
   }
 
   inodes = inodeBlocks * V7_INOPB;
@@ -2437,7 +2436,7 @@ static int unixv7Newfs(
       return 0;
     filsys->s_tinode = htole16(le16toh(filsys->s_tinode) + V7_INOPB);
   }
-  filsys->s_ninode = htole16(MIN(V7_NICINOD, inodes));
+  filsys->s_ninode = htole16(MIN(V7_NICINOD, inodes - V7_ROOTINO));
   for (i = 0; i < le16toh(filsys->s_ninode); i++)
     filsys->s_inode[i] = htole16(i + 3);
 
@@ -2468,10 +2467,10 @@ static int unixv7Newfs(
   filsys->s_time = htole32(V7_LONG(now));
 
   if (SWISSET('f') && (SWGETVAL('f') != NULL))
-    strncpy(filsys->s_fname, SWGETVAL('f'), sizeof(filsys->s_fname));
+    memcpy(filsys->s_fname, SWGETVAL('f'), strnlen(SWGETVAL('f'), sizeof(filsys->s_fname)));
 
   if (SWISSET('p') && (SWGETVAL('p') != NULL))
-    strncpy(filsys->s_fpack, SWGETVAL('p'), sizeof(filsys->s_fpack));
+    memcpy(filsys->s_fpack, SWGETVAL('p'), strnlen(SWGETVAL('p'), sizeof(filsys->s_fpack)));
 
   /*
    * Write out the super block.

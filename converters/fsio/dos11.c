@@ -1448,6 +1448,8 @@ int dos11WriteBytes(
         if (dos11WriteBlock(file->mount, file->current, file->buffer) == 0)
           return 0;
 
+        /* The new tail has no successor; do not retain its own block number. */
+        *((uint16_t *)(file->buffer)) = 0;
         file->current = next;
         file->last = htole16(next);
         file->length = htole16(le16toh(file->length) + 1);
@@ -1504,9 +1506,10 @@ static int dos11Mount(
   unsigned int i, freeblocks = 0;
 
   if (fstat(fileno(mount->container), &stat) == 0) {
-    if (stat.st_blocks < DISKSIZE_RK05)
+    /* Geometry follows the logical image size, not host allocation/sparsity. */
+    if (stat.st_size / 512 < DISKSIZE_RK05)
       mount->blocksz = BLOCKSIZE_RF11 * 2;
-    if (stat.st_blocks > DISKSIZE_RK05)
+    if (stat.st_size / 512 > DISKSIZE_RK05)
       mount->blocksz = BLOCKSIZE_RP03 * 2;
 
     data->blocks = stat.st_size / mount->blocksz;
@@ -1636,7 +1639,7 @@ static void dos11Umount(
  --*/
 static size_t dos11Size(void)
 {
-  return DISKSIZE_RK05 * BLOCKSIZE_RK11;
+  return DISKSIZE_RK05 * BLOCKSIZE_RK11 * sizeof(uint16_t);
 }
 
 /*++
@@ -1672,7 +1675,7 @@ static int dos11Newfs(
 
   memset(data, 0, sizeof(*data));
 
-  data->blocks = size / BLOCKSIZE_RK11;
+  data->blocks = size / mount->blocksz;
   data->bitmaps = 5;
   data->bmblk[0] = MAP_BLOCK;
   data->bmblk[1] = MAP_BLOCK + 1;
@@ -1851,7 +1854,7 @@ static void dos11Info(
   uint16_t buf[512];
 
   localtime_r(&now, &tm);
-  strftime(datetime, sizeof(datetime), "%d-%b-%C at %I:%M:%S", &tm);
+  strftime(datetime, sizeof(datetime), "%d-%b-%Y at %I:%M:%S", &tm);
 
   printf("* * * * * * Listing of MFD for %s * * * * * * on %s\n",
          mount->name, datetime);

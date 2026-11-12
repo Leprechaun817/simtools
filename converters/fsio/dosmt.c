@@ -716,7 +716,7 @@ static void dosmtInfo(
     /*
      * Restore the tape position
      */
-    if (tapeSetPosition(mount->container, pos) != 0)
+    if (tapeSetPosition(mount->container, pos) == 0)
       goto error;
 
   } else eot = 1;

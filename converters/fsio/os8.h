@@ -226,7 +226,7 @@ struct os8OpenFile {
 struct OS8device {
   char                  *name;          /* Device name */
   uint8_t               filesys;        /* # of file systems on device */
-  size_t                diskSize;       /* # of blocks on device */
+  size_t                diskSize;       /* Physical image size in bytes */
   off_t                 skip;           /* Reserved space at start of disk */
   uint16_t              blocks[8];      /* File system sizes */
   int                   (*blockPresent)(struct mountedFS *, uint8_t, unsigned int);

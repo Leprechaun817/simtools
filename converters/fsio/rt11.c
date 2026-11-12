@@ -37,7 +37,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <sys/stat.h>
-#include <regex.h>
+#include <fnmatch.h>
 
 #include "fsio.h"
 
@@ -194,152 +194,36 @@ int rt11ParseFilespec(
   return 1;
 }
 
-/*++
- *      r t 1 1 B u i l d R e g e x
- *
- *  Build and compile a regular expression to match a filename with wildcard
- *  characters.
- *
- * Inputs:
- *
- *      spec            - pointer to the file specification block
- *      preg            - pointer to regex_t structure to receive the
- *                        compiled regular expression
- *
- * Outputs:
- *
- *      The compilation may dynamically allocate storage which must be
- *      released using regfree().
- *
- * Returns:
- *
- *      1 if regular expression was successfully compiled, 0 otherwise
- *
- --*/
-static int rt11BuildRegex(
-  struct rt11FileSpec *spec,
-  regex_t *preg
-)
+/*
+ * Match the two RAD50 fields independently, as required by RT-11. Translating
+ * '%' to '?' allows the same filename matcher used for Unix V7 to handle the
+ * small RT-11 wildcard language, without a regular-expression dependency.
+ */
+static int rt11MatchField(const char *pattern, size_t width, const char *name)
 {
-  char temp[64];
-  unsigned int i, j = 0;
+  char glob[7], text[7];
+  size_t i, n = width;
 
-  /*
-   * Convert the filename into a regular expression suitable for compilation.
-   */
-  temp[j++] = '^';
-
-  for (i = 0; i < sizeof(spec->fname); i++) {
-    if (spec->fname[i] == ' ')
-      break;
-
-    switch (spec->fname[i]) {
-      case '*':
-        temp[j++] = '.';
-        temp[j++] = '*';
-        break;
-
-      case '%':
-        temp[j++] = '.';
-        break;
-
-      default:
-        temp[j++] = toupper(spec->fname[i]);
-        break;
-    }
-  }
-
-  temp[j++] = '\\';
-  temp[j++] = '.';
-
-  for (i = 0; i < sizeof(spec->ftype); i++) {
-    if (spec->ftype[i] == ' ')
-      break;
-
-    switch (spec->ftype[i]) {
-      case '*':
-        temp[j++] = '.';
-        temp[j++] = '*';
-        break;
-
-      case '%':
-        temp[j++] = '.';
-        break;
-
-      default:
-        temp[j++] = toupper(spec->ftype[i]);
-        break;
-    }
-  }
-
-  temp[j++] = '$';
-  temp[j++] = '\0';
-
-  /*
-   * Compile the regular expression.
-   */
-  if (regcomp(preg, temp, 0) == 0)
-    return 1;
-
-  return 0;
+  for (i = 0; i < width && pattern[i] != ' '; i++)
+    glob[i] = pattern[i] == '%' ? '?' : toupper((unsigned char)pattern[i]);
+  glob[i] = '\0';
+  while (n > 0 && name[n - 1] == ' ')
+    n--;
+  memcpy(text, name, n);
+  text[n] = '\0';
+  return fnmatch(glob, text, 0) == 0;
 }
-
-/*++
- *      r t 1 1 M a t c h R e g e x
- *
- *  Match a pre-compiled regular expression against a filename and type.
- *
- * Inputs:
- *
- *      preg            - pointer to pre-compiler regular expression
- *      fname1          - first 3 characters of filename (RAD50)
- *      fname2          - next 3 characters of filename (RAD50)
- *      ftype           - 3 characters of file type (RAD50)
- *
- * Outputs:
- *
- *      ...
- *
- * Returns:
- *
- *      1 if regular expression matches, 0 otherwise
- *
- --*/
-int rt11MatchRegex(
-  regex_t *preg,
-  uint16_t fname1,
-  uint16_t fname2,
-  uint16_t ftype
-)
+
+static int rt11MatchFilespec(const struct rt11FileSpec *spec,
+                            uint16_t fname1, uint16_t fname2, uint16_t ftype)
 {
-  char temp[16];
-  int i = 5;
-
-  /*
-   * Build a filename + type string with no embedded spaces.
-   */
-  r50Asc(fname1, &temp[0]);
-  r50Asc(fname2, &temp[3]);
-
-  while ((i >= 0) && (temp[i] == ' '))
-    i--;
-
-  temp[++i] = '.';
-
-  r50Asc(ftype, &temp[++i]);
-
-  i += 2;
-  while (temp[i] == ' ')
-    i--;
-
-  temp[i + 1] = '\0';
-
-  if (regexec(preg, &temp[0], 0, NULL, 0) == 0)
-    return 1;
-
-  return 0;
+  char name[6], type[3];
+  r50Asc(fname1, name);
+  r50Asc(fname2, name + 3);
+  r50Asc(ftype, type);
+  return rt11MatchField(spec->fname, sizeof(spec->fname), name) &&
+         rt11MatchField(spec->ftype, sizeof(spec->ftype), type);
 }
-
 /*++
  *      M a p L o g T o P h y s
  *
@@ -1563,8 +1447,6 @@ static int validate(
            ((RT11_DS_SIZE - off) >= entrysz)) {
       uint16_t status = le16toh(data->buf[off + RT11_DI_STATUS]);
 
-      position += le16toh(data->buf[off + RT11_DI_LENGTH]);
-
       if ((status & RT11_E_EOS) != 0)
         break;
 
@@ -1575,6 +1457,7 @@ static int validate(
       if (((position + le16toh(data->buf[off + RT11_DI_LENGTH])) & 0xFFFF) < position)
         return RT11_NOPART;
 
+      position += le16toh(data->buf[off + RT11_DI_LENGTH]);
       off += entrysz;
     }
     if (position > highest)
@@ -1885,7 +1768,7 @@ static int rt11Mount(
               char sysid[16];
 
               memset(sysid, 0, sizeof(sysid));
-              strncpy(sysid, (char *)&data->buf[RT11_HB_SYSID],
+              memcpy(sysid, (char *)&data->buf[RT11_HB_SYSID],
                        strlen(RT11_SYSID));
 
               printf("  Version: %s,        System ID: %s\n", version, sysid);
@@ -2080,7 +1963,7 @@ static int rt11Newfs(
       data->buf[RT11_DH_SIZE + RT11_DI_STATUS] = htole16(RT11_E_MPTY);
       data->buf[RT11_DH_SIZE + RT11_DI_LENGTH] =
         htole16(size - (RT11_DSSTART + (2 * RT11_DS_MAX)));
-      data->buf[RT11_DH_SIZE + RT11_DI_SIZE + RT11_DI_STATUS] =
+      data->buf[RT11_DH_SIZE + RT11_DI_SIZE + (extra >> 1) + RT11_DI_STATUS] =
         htole16(RT11_E_EOS);
     } else data->buf[RT11_DH_SIZE + RT11_DI_STATUS] = htole16(RT11_E_EOS);
 
@@ -2172,20 +2055,12 @@ static void rt11Dir(
 
   if (RT11_PARTITIONVALID(data, unit)) {
     uint16_t entrysz, dsseg = 1;
-    regex_t reg;
 
-    if ((spec.flags & (RT11_WC_NAME | RT11_WC_TYPE)) != 0)
-      if (rt11BuildRegex(&spec, &reg) == 0) {
-        fprintf(stderr, "dir: regcomp() failed\n");
-        return;
-      }
 
     do {
       uint16_t off = RT11_DH_SIZE;
 
       if (rt11ReadDirSegment(mount, unit, dsseg) == 0) {
-        if ((spec.flags & (RT11_WC_NAME | RT11_WC_TYPE)) != 0)
-          regfree(&reg);
         return;
       }
 
@@ -2210,7 +2085,7 @@ static void rt11Dir(
                 (ftype != spec.type))
               goto nomatch;
           } else {
-            if (rt11MatchRegex(&reg, fname1, fname2, ftype) == 0)
+            if (rt11MatchFilespec(&spec, fname1, fname2, ftype) == 0)
               goto nomatch;
           }
 
@@ -2223,9 +2098,6 @@ static void rt11Dir(
 
       dsseg = le16toh(data->buf[RT11_DH_NEXT]);
     } while (dsseg != 0);
-
-    if ((spec.flags & (RT11_WC_NAME | RT11_WC_TYPE)) != 0)
-      regfree(&reg);
   }
 }
 

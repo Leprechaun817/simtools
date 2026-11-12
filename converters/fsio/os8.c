@@ -37,7 +37,6 @@
 #include <ctype.h>
 #include <time.h>
 #include <sys/stat.h>
-#include <regex.h>
 
 #include "fsio.h"
 
@@ -141,18 +140,18 @@ extern int quiet;
  *
  --*/
 struct OS8device OS8Devices[] = {
-  { "rk05", 2, 2 * OS8_RK05FS_BLKS,
+  { "rk05", 2, 2 * OS8_RK05FS_BLKS * OS8_BLOCKSIZE * sizeof(uint16_t),
     0,
     { OS8_RK05FS_BLKS, OS8_RK05FS_BLKS, 0, 0, 0, 0, 0,0 },
        rk05BlockPresent, rk05ReadBlock, rk05WriteBlock },
 
-  { "rx01", 1, (OS8_RX0xSZ * OS8_RX01SS_W) / OS8_BLOCKSIZE,
+  { "rx01", 1, OS8_RX0xSZ * OS8_RX01SS,
     OS8_RX0xNSECT * OS8_RX01SS,
     { ((OS8_RX0xSZ - OS8_RX0xNSECT) * OS8_RX01SS_W) / OS8_BLOCKSIZE,
         0, 0, 0, 0, 0, 0, 0 },
        rx01BlockPresent, rx01ReadBlock, rx01WriteBlock },
 
-  { "rx02", 1, (OS8_RX0xSZ * OS8_RX02SS_W) / OS8_BLOCKSIZE,
+  { "rx02", 1, OS8_RX0xSZ * OS8_RX02SS,
     OS8_RX0xNSECT * OS8_RX02SS,
     { ((OS8_RX0xSZ - OS8_RX0xNSECT) * OS8_RX02SS_W) / OS8_BLOCKSIZE,
         0, 0, 0, 0, 0, 0, 0 },
@@ -1074,7 +1073,9 @@ static int os8FindSpace(
 {
   struct OS8data *data = &mount->os8data;
   int found = 0;
-  uint16_t dirseg, diroff, dirstart, size = space == 0 ? 0 : 0xFFFF;
+  /* Output coordinates are only consumed when found is true. */
+  uint16_t dirseg = 0, diroff = 0, dirstart = 0;
+  uint16_t size = space == 0 ? 0 : 0xFFFF;
   uint16_t dirblk = OS8_DSSTART;
 
   if (os8UnitValid(data, unit)) {
@@ -2226,12 +2227,12 @@ int os8WriteBytes(
         /* FALLTHROUGH */
 
       case OS8_BYTE0:
-        file->buffer[file->wordpos++] = os8Value(*buf++);
+        file->buffer[file->wordpos++] = os8Value((uint8_t)*buf++);
         file->bytepos = OS8_BYTE1;
         break;
 
       case OS8_BYTE1:
-        file->buffer[file->wordpos++] = os8Value(*buf++);
+        file->buffer[file->wordpos++] = os8Value((uint8_t)*buf++);
         file->bytepos = OS8_BYTE2;
         break;
 
@@ -2384,7 +2385,7 @@ static void os8Umount(
  *
  * Returns:
  *
- *      Size of the container file in blocks of default file system size
+ *      Size of the container file in bytes
  *
  --*/
 static size_t os8Size(void)
@@ -2462,6 +2463,7 @@ static int os8Newfs(
       uint16_t buf[OS8_BLOCKSIZE];
       uint16_t entries = i == OS8_DSSTART ? 1 : 0;
 
+      memset(buf, 0, sizeof(buf));
       buf[OS8_DH_ENTRIES] = htole16(os8Value(-entries));
       buf[OS8_DH_START] = htole16(os8Value(OS8_DATA));
       buf[OS8_DH_NEXT] = htole16(os8Value(0));

@@ -30,6 +30,7 @@
 #define __FSIO_H__
 #include <stdio.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include "declib.h"
 
 /*
@@ -47,7 +48,16 @@ enum openMode           { M_RD, M_WR, M_UNKNOWN };
  * All of the supported file systems are natively little endian so we only
  * need a subset of the endian support macros/routines.
  */
-#if defined(__APPLE__)
+#if defined(_WIN32)
+/* The supported native Windows target is little-endian x86-64. */
+#if !defined(__x86_64__) && !defined(_M_X64)
+#error Unsupported Windows byte order: qualify this target before building
+#endif
+#define htole16(x)      ((uint16_t)(x))
+#define le16toh(x)      ((uint16_t)(x))
+#define htole32(x)      ((uint32_t)(x))
+#define le32toh(x)      ((uint32_t)(x))
+#elif defined(__APPLE__)
 #include <libkern/OSByteOrder.h>
 
 #define htole16(x)      OSSwapHostToLittleInt16(x)
@@ -75,7 +85,7 @@ enum openMode           { M_RD, M_WR, M_UNKNOWN };
 
 #define MAX_DEVLEN      16
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 #define OPTIONS(s)      "+" s
 #else
 #define OPTIONS(s)      s

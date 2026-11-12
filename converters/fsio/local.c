@@ -35,6 +35,11 @@
 #include <string.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <io.h>
+#include <errno.h>
+#include <inttypes.h>
+#endif
 
 #include "fsio.h"
 
@@ -94,11 +99,44 @@ static void localDir(
   char *fname
 )
 {
+#ifdef _WIN32
+  struct __finddata64_t entry;
+  struct stat info;
+  intptr_t search;
+  const char *name = *fname ? fname : ".";
+  size_t len = strlen(name) + 3;
+  char *pattern = malloc(len);
+
+  if (pattern == NULL) {
+    fprintf(stderr, "dir: out of memory\n");
+    return;
+  }
+  snprintf(pattern, len, "%s%s", name,
+           stat(name, &info) == 0 && S_ISDIR(info.st_mode) ? "/*" : "");
+  search = _findfirst64(pattern, &entry);
+  if (search == -1) {
+    fprintf(stderr, "dir: %s: %s\n", name, strerror(errno));
+  } else {
+    do {
+      if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0)
+        continue;
+      if (SWISSET('f'))
+        printf("%c %12" PRIu64 " %s\n",
+               (entry.attrib & _A_SUBDIR) ? 'd' : '-',
+               (uint64_t)entry.size, entry.name);
+      else
+        printf("%s\n", entry.name);
+    } while (_findnext64(search, &entry) == 0);
+    _findclose(search);
+  }
+  free(pattern);
+#else
   char cmd[64];
 
   sprintf(cmd, "/bin/ls %s%s\n",
           SWISSET('f') ? "-l " : "", fname);
   system(cmd);
+#endif
 }
 
 /*++
@@ -127,7 +165,7 @@ static void *localOpenFileR(
   char *fname
 )
 {
-  return fopen(fname, "r");
+  return fopen(fname, "rb");
 }
 
 /*++
@@ -158,7 +196,7 @@ static void *localOpenFileW(
   off_t UNUSED(size)
 )
 {
-  return fopen(fname, "w");
+  return fopen(fname, "wb");
 }
 
 /*++
