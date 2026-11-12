@@ -5,6 +5,9 @@ The tools are organized into categories, each of which has a subdirectory.
 For consistency, each tool has its own subdirectory, even if it only contains a single file.
 (READMEs for tools without them are welcome)
 
+The local Windows build work follows the
+[per-utility GCC/CMake workflow](WINDOWS-BUILD-WORKFLOW.md), completing each
+utility's build, tests, installation, and executable placement individually.
 
 ## Configuration support
 
