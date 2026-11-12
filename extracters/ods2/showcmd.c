@@ -618,8 +618,12 @@ void show_version( int full ) {
 #elif defined ___llvm
     strcat( detail, "LLVM" );
 #elif defined __MINGW64__
-    strcat( detail, "MinGW-w64" );
-    #if defined __MINGW64_VERSION_MAJOR
+    #if defined __GNUC__
+        strcat( detail, "GCC (MinGW-w64)" );
+        snprintf( version, MAXSTRL, "%u.%u.%u",
+                  __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__ );
+    #elif defined __MINGW64_VERSION_MAJOR
+        strcat( detail, "MinGW-w64" );
         snprintf( version, MAXSTRL, "%u.%u",
                   __MINGW64_VERSION_MAJOR, __MINGW64_VERSION_MINOR );
     #endif

@@ -173,7 +173,7 @@ int phyvhd_available( int query ) {
     return TRUE;
 }
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable: 4996) /* MS complains about _open, which is open() */
 #endif
@@ -340,7 +340,7 @@ vmscond_t phyvhd_init( struct DEV *dev ) {
     }
     return status;
 }
-#ifdef _WIN32
+#ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 /*********************************************************** phyvhd_show() */

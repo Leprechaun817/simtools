@@ -616,7 +616,9 @@ static vmscond_t copy_1_from( options_t options, struct FAB *fab,
     if( to == NULL )
         tof = stdout;
     else {
-        if( (stream ||
+        /* STREAM emits explicit CRLF pairs; Windows text mode would insert
+         * a second CR. Other text modes retain their existing translation. */
+        if( stream != EOF && (stream ||
              (fab->fab$b_rat & (FAB$M_CR | FAB$M_PRN | FAB$M_FTN))) &&
             !(options & copy_binary) ) {
             tof = openf( to, (options & copy_append)? "a": "w" );
@@ -1167,7 +1169,9 @@ static vmscond_t copy_1_to( options_t options, char *from, char *to ) {
     case FAB$C_STMLF:
     case FAB$C_STMCR:
         fab.fab$b_rat |= FAB$M_CR;
-        keepnl = 1;
+        /* sys_put supplies the selected stream delimiter. Keeping the host
+         * LF would add an extra record for STREAM and stray LFs for STREAMCR. */
+        keepnl = 0;
         break;
     case FAB$C_UDF:
         keepnl = 1;

@@ -374,11 +374,11 @@ static size_t iconv( iconv_t cd,
             }
             *inbytesleft -= 2;
             ip += 2;
-            if( ip[-2] == 0xfe && ip[-1] == 0xff ) {
+            if( (unsigned char)ip[-2] == 0xfe && (unsigned char)ip[-1] == 0xff ) {
                 ics = icc_utf16be;
                 continue;
             }
-            if( ip[-2] == 0xff && ip[-1] == 0xfe ) {
+            if( (unsigned char)ip[-2] == 0xff && (unsigned char)ip[-1] == 0xfe ) {
                 ics = icc_utf16le;
                 continue;
             }
@@ -2457,7 +2457,7 @@ vhd_footer_offset_at_eof(vhd_context_t *ctx, off_t *off)
 {
 	int err;
 	if ((err = vhd_seek(ctx, 0, SEEK_END)))
-		return errno;
+		return err;
 	*off = vhd_position(ctx) - sizeof(vhd_footer_t);
 	return 0;
 }
@@ -3895,8 +3895,8 @@ __raw_read_link(char *filename,
                 n = (uint32_t)size;
 
             err = read( fd, dp, n );
-            if( err != n ) {
-                VHDLOG((FN, "%s: reading of %"PRIu64" returned %d, errno: %d\n",
+            if( err < 0 || (uint32_t)err != n ) {
+                VHDLOG((FN, "%s: reading of %"PRIu32" returned %d, errno: %d\n",
                     filename, n, err, -errno ));
                 _aligned_free( data );
                 err = errno ? -errno : -EIO;

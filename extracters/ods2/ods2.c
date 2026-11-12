@@ -448,7 +448,7 @@ int main( int argc, char **argv ) {
     while( 1 ) {
         char *ptr = NULL;
 
-        if( !initfile && argc > 0 ) {
+        if( !initfile && atc == 0 && argc > 0 ) {
             size_t n, al = 0;
 
             rl = NULL;

@@ -282,7 +282,7 @@ static void *wcb_create( uint32_t hashval, void *keyval, vmscond_t *retsts ) {
 
     UNUSED(hashval);
 
-    wcb = (struct WCB *) calloc( sizeof(struct WCB), 1 );
+    wcb = (struct WCB *) calloc( 1, sizeof(struct WCB) );
 
     if( wcb == NULL ) {
         *retsts = SS$_INSFMEM;
@@ -1139,7 +1139,7 @@ vmscond_t mount( options_t flags,
                     if( toupper( lbl[i] ) !=
                         toupper( vcbdev->home.hm2$t_volname[i] ) ) {
                         sts = printmsg( MOUNT_WRONGVOL, 0, dname,
-                                        12, vcbdev->home.hm2$t_volname, lbl );
+                                        12, vcbdev->home.hm2$t_volname, 12, lbl );
                         break;
                     }
                 }
@@ -1502,8 +1502,8 @@ static void print_volhdr( int volset, size_t devwid ) {
 
 /********************************************************** print_prot() */
 static void print_prot( f11word code, int vol ) {
-    static const char grp[4] = { "SOGW" };
-    static const char acc[2][4] = {{"RWED"}, {"RWCD"}};
+    static const char grp[4] = { 'S', 'O', 'G', 'W' };
+    static const char acc[2][4] = {{'R', 'W', 'E', 'D'}, {'R', 'W', 'C', 'D'}};
     int g, b, w;
 
     w = 27;

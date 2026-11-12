@@ -998,7 +998,7 @@ HEADING
 # The last two are enabled by a magic #define in the caller.
 
 printf( << '__EOF', $VERSION, $argv );
-#ifndef _SDEF_H
+#ifndef _SSDEF_H
 #define _SSDEF_H
 /* ** MACHINE GENERATED FILE by message version %s: ODS2 Message catalog */
 

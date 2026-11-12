@@ -573,11 +573,16 @@ static void getsysversion( void ) {
     OSVERSIONINFO sysver;
 
     memset( &sysver, 0, sizeof( sysver ) );
+#ifdef _MSC_VER
+#pragma warning (push)
 #pragma warning (disable : 4996 28159)
+#endif
     sysver.dwOSVersionInfoSize = sizeof( sysver );
     GetVersionEx( &sysver                                    /* lpVersionInfo */
                 );
-#pragma warning (default : 4996 28159)
+#ifdef _MSC_VER
+#pragma warning (pop)
+#endif
     is_NT = ( sysver.dwPlatformId == VER_PLATFORM_WIN32_NT ) ? 1 : 0 ;
 }
 
@@ -920,7 +925,6 @@ vmscond_t phyio_init( struct DEV *dev ) {
                           );
         }
         if( dev->API.Win32.handle == INVALID_HANDLE_VALUE ) {
-            vmscond_t sts;
             DWORD err;
             TCHAR *msg;
 
@@ -929,9 +933,9 @@ vmscond_t phyio_init( struct DEV *dev ) {
 
             printmsg( IO_OPENDEV, 0, filenam );
             if( msg == NULL ) {
-                sts = printmsg( ODS2_OSERRORNO, MSG_CONTINUE, IO_OPENDEV, err );
+                printmsg( ODS2_OSERRORNO, MSG_CONTINUE, IO_OPENDEV, err );
             } else {
-                sts = printmsg( ODS2_OSERROR, MSG_CONTINUE, IO_OPENDEV, msg );
+                printmsg( ODS2_OSERROR, MSG_CONTINUE, IO_OPENDEV, msg );
                 LocalFree( msg );
             }
             switch( err ) {

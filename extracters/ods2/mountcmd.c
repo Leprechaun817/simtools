@@ -128,14 +128,17 @@ DECL_CMD(mount) {
             return sts;
         }
         for( i = 0; i < (size_t)nparents; i++ ) {
-            sts = phyvhd_snapshot( devs[i], parfiles[i] );
-            if( $FAILS(sts = phyvhd_snapshot( devs[i], parfiles[i] )) ) {
+            /* The optional virtual device alias is not part of the host path. */
+            const char *filename = strchr( devs[i], '=' );
+            filename = filename? filename + 1: devs[i];
+            if( $FAILS(sts = phyvhd_snapshot( filename, parfiles[i] )) ) {
                 if( !$MATCHCOND(sts, SS$_DUPFILENAME) ) {
-                    (void) Unlink( devs[i] );
+                    (void) Unlink( filename );
                 }
                 while( i > 0 ) {
                     --i;
-                    (void) Unlink( devs[i] );
+                    filename = strchr( devs[i], '=' );
+                    (void) Unlink( filename? filename + 1: devs[i] );
                 }
                 free( parfiles );
                 free( devs );

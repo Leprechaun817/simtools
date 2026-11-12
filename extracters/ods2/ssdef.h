@@ -1,4 +1,4 @@
-#ifndef _SDEF_H
+#ifndef _SSDEF_H
 #define _SSDEF_H
 /* ** MACHINE GENERATED FILE by message version 0.1: ODS2 Message catalog */
 

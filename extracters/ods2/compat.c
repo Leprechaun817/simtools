@@ -135,9 +135,9 @@ TCHAR *w32_errstr( DWORD eno, ... ) {
         (LPSTR)&msg, 1, &ap ) == 0 ) {
         msg = (TCHAR *)malloc( 64 );
         if( msg == NULL ) {
-            printf( "Out of memory reporting Windows error(%u\n", eno );
+            printf( "Out of memory reporting Windows error(%lu\n", eno );
         } else
-            (void) snprintf( msg, 64, "(%u)", eno );
+            (void) snprintf( msg, 64, "(%lu)", eno );
     }
     va_end(ap);
     return msg;

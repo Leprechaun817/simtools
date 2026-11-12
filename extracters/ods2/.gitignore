@@ -41,6 +41,8 @@ attic
 # ssdef.h
 # ssdef.msg
 !default.md
+!README.cmake.md
+!windows-gcc-validation.md
 
 # Mountpoints used for testing
 pc/*

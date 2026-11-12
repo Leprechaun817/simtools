@@ -13,6 +13,14 @@ placement, and six additional functional checks of each deployed copy. See its
 [qualification record](converters/fsio/windows-gcc-validation.md). The usable
 host executable is `converters\fsio\fsio.exe`; this does not require DOSBox.
 
+`ods2` completed the workflow on 2026-11-12 with a warning-free WinLibs GCC
+build, 14 passing serial cases, and six additional functional checks of each
+deployed copy. Its included VHD backend, `makehelp`, `genmsg`, and generated
+help/message data are built and placed with it. See the
+[build guide](extracters/ods2/README.cmake.md) and
+[validation record](extracters/ods2/windows-gcc-validation.md). The usable
+host executable is `extracters\ods2\ods2.exe`; keep `ods2.hlb` beside it.
+
 ## Selected environment
 
 | Component | Selected location | Version observed during config11 work |
