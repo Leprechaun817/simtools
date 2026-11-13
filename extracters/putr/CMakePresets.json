@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "dosbox-dos",
+      "displayName": "PUTR DOS assembly with JWasm and DOSBox Staging",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../../bld/dos/putr",
+      "cacheVariables": {
+        "CMAKE_MAKE_PROGRAM": "C:/gcc-winlibs-x86_64/bin/ninja.exe",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../../bld/install/dos",
+        "BUILD_TESTING": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {"name": "dosbox-dos", "configurePreset": "dosbox-dos", "jobs": 1}
+  ],
+  "testPresets": [
+    {
+      "name": "dosbox-dos",
+      "configurePreset": "dosbox-dos",
+      "execution": {"jobs": 1, "stopOnFailure": true},
+      "output": {"outputOnFailure": true}
+    }
+  ]
+}

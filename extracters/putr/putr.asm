@@ -9408,7 +9408,7 @@ rtdg1:	; get next entry (SI=ptr, BX=base of buf)
 	lodsw			;get status word
 	test	ah,4000/100h	;end of segment?
 	jz	$+5
-	 jmp	rtdg5		;yes, go get next seg
+	 jmp	near ptr rtdg5	;keep 3 bytes for the fixed $+5 skip above
 	mov	ds:fattr,ah	;save
 	test	ah,1400/100h	;empty area or tentative file?
 	jnz	rtdg4
@@ -11430,8 +11430,9 @@ oddg3:	; get file information
 ; dx:ax	file size in bytes
 ;
 ;-
-odsize:	mov	dx,ds:h_ufat+f_efbk[si] ;get F.EFBK (from H.UFAT file attrs)
-	mov	ax,ds:h_ufat+f_efbk+2[si]
+; Explicit word sizes keep byte-typed H.UFAT compatible with JWasm.
+odsize:	mov	dx,word ptr ds:h_ufat+f_efbk[si] ;get F.EFBK (from H.UFAT file attrs)
+	mov	ax,word ptr ds:h_ufat+f_efbk+2[si]
 	mov	cl,ds:h_ufat+f_rtyp[si] ;get record type
 	xor	ch,ch		;zero-extend
 	or	cx,ax		;size and record type all 0?
@@ -11457,7 +11458,7 @@ odsz3:	call	odgext		;get extension header
 	mov	bx,512d		;say F.FFBY = 512. (already have true blk cnt)
 	jmp	short odsz6	;skip
 odsz4:	; header looks OK, grab values out
-	mov	bx,ds:h_ufat+f_ffby[si] ;get F.FFBY
+	mov	bx,word ptr ds:h_ufat+f_ffby[si] ;get F.FFBY
 	push	dx		;save
 	push	ax
 	test	bx,bx		;F.FFBY=0?

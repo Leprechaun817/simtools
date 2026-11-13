@@ -34,6 +34,15 @@ historical evidence. Native GNU Readline completion/history and RSTS guest
 acceptance remain outside the qualified scope; neither the initial nor repair
 tests claim recovery from every possible corruption.
 
+`PUTR` has a DOSBox Staging / JWasm build workflow under `extracters/putr`.
+See its [build and use guide](extracters/putr/README.cmake.md) and
+[qualification record](extracters/putr/windows-dos-validation.md). The build
+checks historical instruction-size assumptions and places `putr.com` beside
+its source. The bounded 12-case suite passes for the rebuilt and supplied COMs.
+The reverse DOS/BATCH readback through fsio still fails for both binaries and
+is explicitly recorded as an open interoperability issue, outside those passes.
+This build does not qualify every PUTR format or hardware backend.
+
 ## Selected environment
 
 | Component | Selected location | Version observed during config11 work |
