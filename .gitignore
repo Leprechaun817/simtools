@@ -260,3 +260,4 @@ _Pvt_Extensions
 *.sln.iml
 
 .gdb_history
+extracters/putr/putr.com
