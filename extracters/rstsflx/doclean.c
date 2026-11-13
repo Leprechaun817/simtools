@@ -65,12 +65,12 @@ byte	*gfdmap = NULL;
 byte	*ufdbuf = NULL;
 byte	*ufdmap = NULL;
 
-byte	curproj, curprog;
+static byte curproj, curprog;
 char	curdir[10];
 char	curfile[22];
 long	filesize;
 long	e;
-long	gfds, ufds, files, clusters;
+static long gfds, ufds, files, clusters;
 long	dirfiles, dirtsize;
 int	badb, satt, init;		/* flags for special files */
 
@@ -188,7 +188,6 @@ static void writedir (byte *buf)
 	int	i, clu;
 	long	j;
 	fdcm	*m;
-	byte	*p;
 		
 	if (sw.prot != NULL) return;		/* read-only, don't write */
 	m = (fdcm *) (buf + 0760);
@@ -324,20 +323,6 @@ static word allocchain (word link, byte *buf, byte * map, int use)
 	return prev;				/* we had a problem */
 }
 
-/* similarly, mark a chain as free. */
-static void deallocchain (word link, byte *buf, byte * map)
-{
-	retcode	st;
-	
-	for (;;)
-	{
-		st = ulk2 (link, buf);
-		if (st == nullink) return;	/* end of chain, done */
-		if (st == badlink) rabort (INTERNAL);
-		deallocent (map);
-		link = *(word16 *) (buf + e);	/* follow link to next */
-	}
-}
 		
 /* function to mark a cluster as allocated.  this operates on sattbf2
  * (not sattbuf) -- it looks a lot like retclu except for the sense of
@@ -347,7 +332,6 @@ static void deallocchain (word link, byte *buf, byte * map)
 static retcode alloc (word pos, int clusiz)
 {
 	long	m, n;
-	byte	*s;
 	int	bpos;
 	retcode	ret = ok;
 
@@ -358,7 +342,7 @@ static retcode alloc (word pos, int clusiz)
 	if ((pos - 1) % (clusiz / dcs))
 		return align;
 	pos = dcntopcn(pos);		/* convert to pcn */
-	if (pos >= pcns)
+	if (pos >= (unsigned long)pcns)
 		return range;
 	clusiz /= pcs;			/* fcs as count of clusters */
 	if (clusiz <= 0)
@@ -474,7 +458,7 @@ static retcode cleandir (word dcn, int clu,
 	printf ("\rprocessing %s                ", curdir);
 	fflush (stdout);
 	
-	if (dcntopcn (dcn) >= pcns)
+	if (dcntopcn (dcn) >= (unsigned long)pcns)
 	{
 		printf ("\nstarting dcn %d for %s out of range\n",
 			dcn, curdir);
@@ -760,10 +744,9 @@ static void deallocdir (byte *buf)
  */
 static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 {
-	retcode	st, ret = ok;
+	retcode	st;
 	ufdae	*a;
 	ufdre	*r;
-	ufdlabel *l;
 	int	clu, i, clurat, sysfile;
 	int	hole = 0, badflag = 0, contig = 1, prevdcn = 0;
 	word	prev;
@@ -1114,7 +1097,6 @@ static void processufd (byte *buf, byte *map)
 static retcode cleanufd (word dcn, int proj, int prog)
 {
 	retcode	st, ret = ok;
-	word	prev;
 	
 	dirfiles = dirtsize = 0;
 	if (dcn == 0) return 0;			/* nothing there... */
@@ -1244,7 +1226,7 @@ static int cleangfd (word dcn, retcode proj)
 		if (n->ustat & us_del)		/* account marked for delete */
 		{
 			if (sw.verbose != NULL ||
-			    (proj == 0 & prog == 1))
+			    (proj == 0 && prog == 1))
 				printf ("\naccount [%d,%d] marked for delete\n",
 					proj, prog);
 			if (proj == 0 && prog == 1) rabort (BADPAK);
@@ -1658,11 +1640,22 @@ void doclean (int argc, char **argv)
 	int	i, flag;
 	byte	*o, *n;
 	byte	m;
+	(void)argc;
+	(void)argv;
 	
 	if (sw.prot == NULL)
 		ropen (DWRITEMODE);	/* open it first */
 	else	ropen (DREADMODE);
 	readlabel ();			/* read and remember label data */
+	/* The old-format path below never walks the mixed account/file chain.
+	 * Rebuilding its bitmap would free live data. Refuse both modes until
+	 * that traversal has an independently verified implementation.
+	 */
+	if (plevel == RDS0) {
+		printf ("RDS 0.0 clean/rebuild is not implemented; disk unchanged\n");
+		rclose ();
+		rabort (NOMSG);
+	}
 	if (pcs < dcs || pcs > 64 || (pcs > 16 && plevel < RDS12) ||
 	    (pcs & -pcs) != pcs)
 	{

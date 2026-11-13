@@ -87,8 +87,8 @@ void doinit (int argc, char **argv)
 	word		dirne;
 	packlabel	*l;
 	ufdae		*a;
-	FILE		*mf;
-	long		mblocks, moblk, mbytes, mreoff;
+	FILE		*mf = NULL;
+	long		mblocks = 0, moblk, mbytes, mreoff;
 	word		mprevre, mre;
 
 	if (argc == 0) {
@@ -159,6 +159,7 @@ void doinit (int argc, char **argv)
 			return;
 		}
 		newclu = getclusize ();
+		if (newclu == 0) return;
 		setrname ();			/* set container name */
 		if (stat (rname, &sbuf)) {
 			if (errno != ENOENT) {
@@ -200,6 +201,7 @@ void doinit (int argc, char **argv)
 			return;
 		}
 		newclu = getclusize ();
+		if (newclu == 0) { rclose (); return; }
 		readlabel ();
 		if (use(packlabel,0)->fill1 == -1
 		    && (pcs >= dcs)
@@ -210,8 +212,8 @@ void doinit (int argc, char **argv)
 			printf ("   Pack label:  %s\n", pname);
 			printf ("\nRe-initialize it (Y/N)? ");
 		} else	printf ("Initialize %s (Y/N)? ", rname);
-		fgets (answer, sizeof (answer), stdin);
-		if (tolower(answer[0]) != 'y') return;
+		if (fgets (answer, sizeof (answer), stdin) == NULL ||
+		    tolower(answer[0]) != 'y') { rclose (); return; }
 	}
 	fiblk = dcntolbn(1);
 	memset (fibuf, 0, BLKSIZE);		/* clear out fibuf to make an invalid pack */

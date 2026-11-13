@@ -5,6 +5,9 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 #if (defined(__MSDOS__) && !defined(__unix__))
 #include <dir.h>
 #endif
@@ -58,10 +61,14 @@ static void dogetfile (firqb *f) {
 						rname, FALSE);
 			}
 			if (sw.tree != NULL) {
+				if (snprintf (dirname, sizeof(dirname), "%s/%03d%03d",
+				              on, f->cproj, f->cprog) >= (int)sizeof(dirname)) {
+					printf ("Output path too long\n");
+					return;
+				}
 				if (cproj != f->cproj || cprog != f->cprog) {
 					cproj = f->cproj;
 					cprog = f->cprog;
-					sprintf (dirname, "%s/%03d%03d", on, cproj, cprog);
 					if (stat (dirname, &sbuf2)) {
 						if (errno != ENOENT) {
 							printf ("Can't stat %s\n", dirname);
@@ -79,8 +86,16 @@ static void dogetfile (firqb *f) {
 						}
 					}
 				}
-				sprintf (tmpname, "%s/%s", dirname, rname);
-			} else	sprintf (tmpname, "%s/%s", on, rname);
+				if (snprintf (tmpname, sizeof(tmpname), "%s/%s", dirname, rname)
+				    >= (int)sizeof(tmpname)) {
+					printf ("Output path too long\n");
+					return;
+				}
+			} else if (snprintf (tmpname, sizeof(tmpname), "%s/%s", on, rname)
+			           >= (int)sizeof(tmpname)) {
+				printf ("Output path too long\n");
+				return;
+			}
 			on2 = tmpname;
 		} else	on2 = on;
 
@@ -161,12 +176,12 @@ void doget (int argc, char **argv)
 		} else sbuf.st_mode = 0;	/* not found -> not a dir */
 	}
 	s = strlen (on);
-	if (on[s - 1] == '/') on[s - 1] = '\0';
+	if (s && on[s - 1] == '/') on[s - 1] = '\0';
 	on2 = on;
 	/* concatenating if output is a filespec (not a directory spec)
 	 * and input spec is wildcard, or multiple input specs
 	 */
-	parse (argv[1], &f);		/* parse first argument for wildcards */
+	parse (argv[0], &f);		/* parse first argument for wildcards */
 	concat = (!S_ISDIR(sbuf.st_mode) &&
 		(((f.flags & F_WILD) != 0) || argc >= 2));
 	if (concat) {			/* create now if concatenating */

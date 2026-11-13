@@ -14,6 +14,8 @@ void doalloc (int argc, char **argv)		/* show allocated clusters */
 	int	bit, szb;
 	long	first, used, unused, biggest, size;
 	long	n;
+	(void)argc;
+	(void)argv;
 
 	rmount ();			/* mount the disk R/O */
 	findsat ();			/* look up satt.sys */

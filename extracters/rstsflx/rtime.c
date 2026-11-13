@@ -18,7 +18,7 @@ char *cvtdate (word date, char *buf)
         int	mon;
 
 	if (date == 0) {			/* no date present */
-		memcpy (buf, "  none   ", DATELEN);
+		memcpy (buf, "  none     ", DATELEN);
 		return (buf + DATELEN - 1);	/* point to terminator */
 	}		
 	yr = (long)date / 1000 + 1970;
@@ -28,6 +28,10 @@ char *cvtdate (word date, char *buf)
 	for (mon = 0; mon < 12; mon++) {
 		if (day <= days[mon]) break;
 		day -= days[mon];
+	}
+	if (mon == 12 || day == 0) {
+		memcpy (buf, "  invalid  ", DATELEN);
+		return (buf + DATELEN - 1);
 	}
 	sprintf (buf, "%2ld-%3s-%04ld", day, months[mon], yr);
 	return (buf + DATELEN - 1);		/* point to terminator */

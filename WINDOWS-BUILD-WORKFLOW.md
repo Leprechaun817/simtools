@@ -21,6 +21,18 @@ help/message data are built and placed with it. See the
 [validation record](extracters/ods2/windows-gcc-validation.md). The usable
 host executable is `extracters\ods2\ods2.exe`; keep `ods2.hlb` beside it.
 
+`flx` (the utility in `extracters/rstsflx`, not a separate second program)
+completed its scoped native Windows build and deployment checks on 2026-11-12:
+warning-free WinLibs build, 12 passing serial cases, and six additional cases
+for each deployed copy. Its usable executable is `extracters\rstsflx\flx.exe`.
+See the [build guide](extracters/rstsflx/README.cmake.md) and
+[validation record](extracters/rstsflx/windows-gcc-validation.md).
+**Full feature parity remains open:** the incomplete upstream RDS0
+`clean/rebuild` path is explicitly refused without changing the image, and
+this native console build does not provide GNU Readline completion/history.
+Basic RDS0 and selected RDS1.1/RDS1.2 container operations passed; those results
+are not a claim of RSTS guest compatibility or complete corruption recovery.
+
 ## Selected environment
 
 | Component | Selected location | Version observed during config11 work |

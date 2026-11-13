@@ -584,6 +584,7 @@ int nextfileindir (firqb *f)
 					f->recfmt = r->fa_typ;
 					f->recsiz = r->fa_rsz;
 					f->eofblk = ((long)(r->fa_eof[0]) << 16) + r->fa_eof[1];
+					if (f->eofblk > 0) --f->eofblk; /* RMS VBN to 0-based offset */
 					f->eofbyte = r->fa_eofb;
 					if (f->eofbyte == BLKSIZE)
 					{
@@ -877,9 +878,11 @@ int allocufd (word dirne, firqb *f)
 		readlk (dirne);			/*  and set up for NE */
 		use(gfdne,k)->uar = savelbn;	/* set DCN of UFD */
 		MARKF;
-		fbread (curgfd + gfddcntbl);	/* read UFD pointer block */
-		fibufw[f->cprog] = savelbn;	/* set the new pointer (DCN) */
-		MARKF;
+		if (plevel > RDS0) {
+			fbread (curgfd + gfddcntbl); /* RDS1 GFD pointer table only */
+			fibufw[f->cprog] = savelbn;
+			MARKF;
+		}
 		savelbn = dcntolbn(savelbn);	/* now make it an LBN */
 		entptr = sizeof (ufdlabel);	/* initialize the entry allocator */
 	}
@@ -974,7 +977,7 @@ void retent (word link)
 	*l++ = 0;
 	MARKF;
 	if ((link & ul_clo) < (entptr & ul_clo) ||
-	    ((link & ul_clo) == (entptr & ul_clo) && link < entptr))
+	    ((link & ul_clo) == (entptr & ul_clo) && link < (word)entptr))
 		entptr = link;			/* move entptr back if needed */
 }
 
@@ -1251,7 +1254,7 @@ int makedir (firqb *f, int newclu)
 	gfdae	*a;
 	ua_quo	*q;
 	ua_dat	*d;
-	word	ne, ae, quo, dat;
+	word	ne, ae, quo = 0, dat = 0;
 	int	gfdclu;
 
 /* note: when processing an RDS 0.0 disk, curgfd = mfdlbn = the start lbn
@@ -1264,7 +1267,7 @@ int makedir (firqb *f, int newclu)
 		printcurname (f);
 		printf ("\n");
 	}
-	if (plevel == RDS0 && f->cproj == 0)
+	if (plevel == RDS0 && f->cproj == 0 && f->cprog != 1)
 	{
 		printf ("Invalid PPN [%d,%d] for RDS 0.0 format disk\n", f->cproj, f->cprog);
 		return (FALSE);

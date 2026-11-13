@@ -25,7 +25,7 @@ static int rmseof (firqb *f, char *recp, long iocount)
 	long	curblk;
 	int	curbyt;
 
-	curblk = curvbn + (recp - iobuf - iocount) / BLKSIZE;
+	curblk = curvbn - iocount / BLKSIZE + (recp - iobuf) / BLKSIZE;
         curbyt = (recp - iobuf) % BLKSIZE;
 	if (curblk > f->eofblk) return (TRUE);
 	return (curblk == f->eofblk && curbyt >= f->eofbyte);
@@ -63,7 +63,7 @@ static char *getfix (firqb *f, long *len, int *eor, long iocount)
 		f->currec = NULL;
 		return (NULL);
 	}
-	if (left < f->recsiz) {
+	if (left < (long)f->recsiz) {
 		*len = left;
 		f->currec = NULL;
 		return (recp);
@@ -239,10 +239,10 @@ long seqio (firqb *f, long iolen, iohandler io, void *buffer)
 			}
 			if (count != 0) {
 				if (f->stat & us_ufd) {
-					if (clumap->uent[curreoff] - prevdcn != dcnperfcs)
+					if ((long)clumap->uent[curreoff] - (long)prevdcn != dcnperfcs)
 						break;
 				} else {
-					if (use(ufdre,k)->uent[curreoff] - prevdcn != dcnperfcs)
+					if ((long)use(ufdre,k)->uent[curreoff] - (long)prevdcn != dcnperfcs)
 						break;
 				}
 			}
@@ -315,7 +315,7 @@ void initrandom (firqb *f)
 void fileseek (firqb *f, long vbn)	/* seek to (0-based) vbn */
 {
 	int	clu, re, renum;
-	word	prevre;
+	word	prevre = 0;
 
 	if (vbn >= f->size) rabort(INTERNAL);
 	clu = vbn / f->clusiz;		/* get cluster number */
@@ -476,8 +476,8 @@ long writefile (firqb *f, long count)
 
 long putfile (FILE *from, firqb *f, int binary)
 {
-	long	blocks, wcount, iocount, iocount2, adjust;
-	long	oldsize, offset;
+	long	iocount, iocount2, adjust;
+	long	oldsize;
 	long	ilen, llen;
 	char	*iptr, *eol;
 	ufdne	*n;

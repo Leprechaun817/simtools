@@ -51,7 +51,7 @@ ovrent	*ovr = NULL;			/* pointer to OVR buffer */
  */
 const char	disks[][3] = {	"dv","df","ds","dk","dl","dm",
 				"dp","db","dr","dz","dw","du", 
-				0 };
+				"" };
 
 long findsym (const char *sym)
 {
@@ -189,7 +189,7 @@ void dohook (int argc, char **argv)
 	}
 	for (dskidx = 0; ; dskidx++)
 	{
-		if (disks[dskidx] == NULL)
+		if (disks[dskidx][0] == '\0')
 		{
 			printf ("Unknown disk name %s\n", disk);
 			return;

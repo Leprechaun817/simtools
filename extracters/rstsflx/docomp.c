@@ -15,6 +15,8 @@ void docomp (int argc, char **argv)		/* zero unused clusters */
 	int	bit, szb;
 	long	first, size, iosize;
 	long	n;
+	(void)argc;
+	(void)argv;
 
 	rmountrw ();			/* mount the disk R/W */
 	memset (iobuf, 0, iobufsize);	/* clear out I/O buffer */

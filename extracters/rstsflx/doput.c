@@ -56,13 +56,13 @@ void doput (int argc, char **argv)
 {
 	char		*p, *pp;
 	FILE		*inf;
-	long		newsize;
+	long		newsize, fixedsize = 0;
 	int		newclu;
 	word16		rtsname[2];
 	char		*inspec, *outspec;
 	firqb		outf;
 	firqb		tmpf;
-	long		savelbn;
+	long		savelbn = 0;
 	int		arg, j;
 	const char	*mode;
 	int		binmode;
@@ -81,6 +81,13 @@ void doput (int argc, char **argv)
 		return;
 	}
 	outspec = argv[--argc];
+	if (sw.rmsfix != NULL) {
+		fixedsize = strtol (sw.rmsfix, &pp, 10);
+		if (pp == sw.rmsfix || *pp != '\0' || fixedsize < 1 || fixedsize > 65535) {
+			printf ("Invalid fixed record size %s\n", sw.rmsfix);
+			return;
+		}
+	}
 	if (sw.size == NULL) newsize = 0;
 	else {
 		newsize = strtoul (sw.size, &p, 10);
@@ -171,6 +178,11 @@ void doput (int argc, char **argv)
 			continue;		/*  and carry on */
 		}
 		insize = UP(sbuf.st_size,BLKSIZE) / BLKSIZE;
+		if (fixedsize && sbuf.st_size % fixedsize != 0) {
+			printf ("Input size is not a multiple of fixed record size: %s\n", inspec);
+			fclose (inf);
+			continue;
+		}
 		if (sw.tree != NULL) {
 			memcpy (&tmpf, &outf, sizeof (firqb));
 			tmpf.proj = tmpf.cproj;
@@ -259,12 +271,8 @@ void doput (int argc, char **argv)
 			if (sw.rmsfix != NULL) {
 				a1->fa_typ = rf_fix | fo_seq;
 				a2 = &rms2;
-				a1->fa_rsz = strtoul (sw.rmsfix, &pp, 10);
-				if (*pp != '\0') a1->fa_rsz = 0;
+				a1->fa_rsz = fixedsize;
 				a2->fa_msz = a1->fa_rsz;
-				insize = (insize / (a1->fa_rsz / BLKSIZE)) *
-					 (a1->fa_rsz / BLKSIZE);
-				insize++;
 			}
 			a1->fa_siz[0] = a1->fa_eof[0] = insize  >> 16;
 			a1->fa_siz[1] = a1->fa_eof[1] = insize & 0xffff;
@@ -272,6 +280,17 @@ void doput (int argc, char **argv)
 		}
 		if (crefile (&outf, rtsname, a1, a2)) {
 			bytes = putfile (inf, &outf, binmode);
+			if (a1 != NULL && bytes >= 0) {
+				long eofblock = bytes / BLKSIZE + 1; /* RMS uses 1-based VBNs */
+				readlk (outf.rmslink);
+				a1 = use(ufdrms1,k);
+				a1->fa_siz[0] = outf.size >> 16;
+				a1->fa_siz[1] = outf.size & 0xffff;
+				a1->fa_eof[0] = eofblock >> 16;
+				a1->fa_eof[1] = eofblock & 0xffff;
+				a1->fa_eofb = bytes % BLKSIZE;
+				MARKF;
+			}
 			if (bytes < 0 || (bytes == 0 && outf.size != 0)) {
 				bytes = -bytes;
 				printf ("Failure copying %s to ", inspec);

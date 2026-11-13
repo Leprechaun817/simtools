@@ -13,6 +13,8 @@ void doident (int argc, char **argv)		/* show pack id data */
 	packlabel	*p;
 	char		rdate[DATELEN];
 	char		rtime[RTIMELEN];
+	(void)argc;
+	(void)argv;
 
 	rmount ();			/* mount the disk R/O */
 	readdcn (1);			/* get the pack label */

@@ -9,8 +9,12 @@
 #include <string.h>
 #include <setjmp.h>
 
+#ifdef FLX_NATIVE_CONSOLE
+#include "winconsole.h"
+#else
 #include <readline/readline.h>
 #include <readline/history.h>
+#endif
 
 /* application specific includes */
 
@@ -83,8 +87,7 @@ void doabort(int status, const char *srcfile, int srcline)
 
 int main (int argc, char **argv)
 {
-	int	cmdlen;
-	char	**cmdargv = NULL;	/* for scanning command line */
+	static char **cmdargv = NULL;	/* retained across command aborts */
 	int	cmdargc;
 	char	*word;
 	void	(*command)(int, char **);

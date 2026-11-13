@@ -5,8 +5,10 @@
 #include <string.h>
 #include <ctype.h>
 
+#ifndef FLX_NATIVE_CONSOLE
 #include <readline/readline.h>
 #include <readline/history.h>
+#endif
 
 /* Some unixes define this, some do not. */
 #ifndef whitespace
@@ -72,7 +74,7 @@ char doquery (void (*printfile)(void *), void *name)
 			(*printfile) (name);
 			printf (" (y,n,a,q)? ");
 			fflush (stdout);
-			fgets (answer, sizeof (answer), stdin);
+			if (fgets (answer, sizeof (answer), stdin) == NULL) return 'q';
 			first = tolower (answer[0]);
 			if (first == 'q' || first == 'n' || first == 'y')
 				return (first);
@@ -124,9 +126,10 @@ void dofiles (int argc, char **argv, commandaction action, int nullflag)
 		}
 		else if (nullflag == NULLISWILD)
 		{
-			if ((f.flags & f_name) == 0) 
+			if ((f.flags & f_name) == 0) {
 				for (j = 0; j < 6; j++) f.name[j] = '?';
 				f.flags |= f_name | f_namw;
+			}
 			if ((f.flags & f_ext) == 0)
 			{
 				f.name[7] = '?';
@@ -219,9 +222,10 @@ void dodisk (int argc, char **argv)
 
 void doexit (int argc, char **argv)
 {
+	(void)argc;
+	(void)argv;
+#if !defined(__APPLE__) && !defined(FLX_NATIVE_CONSOLE)
 	int	i;
-	
-#ifndef __APPLE__
 	i = append_history (newhistitems, histfile);
 	if (i)	write_history (histfile);
 	else	history_truncate_file (histfile, hfilesize);
@@ -318,7 +322,8 @@ const swname switches[] =
 
 commandhandler scanargs(int argc, char **argv)
 {
-	int		n, l;
+	int		n;
+	size_t		l;
 	const cmdent	*c;
 	const swname 	*s, *swn;
 	commandhandler	command;
@@ -434,6 +439,9 @@ char *stripwhite (char *string)
 /*                                                                  */
 /* **************************************************************** */
      
+#ifdef FLX_NATIVE_CONSOLE
+void initialize_readline (void) { }
+#else
 /* some forward declarations */
 char * command_generator (const char *text, int state);
 char * switch_generator (const char *text, int state);
@@ -461,6 +469,7 @@ void initialize_readline (void)
 	if (hf == NULL)
 	{
 		home = getenv ("HOME");
+		if (home == NULL) home = ".";
 		i = strlen (home);
 		histfile = malloc (i + strlen ("/.flx_history") + 1);
 		strcpy (histfile, home);
@@ -575,3 +584,4 @@ char * switch_generator (const char *text, int state)
 	/* If no names matched, then return NULL. */
 	return NULL;
 }
+#endif
