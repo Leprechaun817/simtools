@@ -27,11 +27,12 @@ warning-free WinLibs build, 12 passing serial cases, and six additional cases
 for each deployed copy. Its usable executable is `extracters\rstsflx\flx.exe`.
 See the [build guide](extracters/rstsflx/README.cmake.md) and
 [validation record](extracters/rstsflx/windows-gcc-validation.md).
-**Full feature parity remains open:** the incomplete upstream RDS0
-`clean/rebuild` path is explicitly refused without changing the image, and
-this native console build does not provide GNU Readline completion/history.
-Basic RDS0 and selected RDS1.1/RDS1.2 container operations passed; those results
-are not a claim of RSTS guest compatibility or complete corruption recovery.
+The subsequent [repair qualification](extracters/rstsflx/clean-rebuild-validation.md)
+implements RDS0 `clean/rebuild` and checks shared repair behavior on RDS1.1 and
+RDS1.2, including injected corruption. The initial refusal results remain as
+historical evidence. Native GNU Readline completion/history and RSTS guest
+acceptance remain outside the qualified scope; neither the initial nor repair
+tests claim recovery from every possible corruption.
 
 ## Selected environment
 

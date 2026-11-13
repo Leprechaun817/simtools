@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 
 #include "flx.h"
+#include "fldef.h"
 #include "diskio.h"
 #include "absio.h"
 
@@ -41,6 +42,81 @@ FILE		*rstsfile;    	/* rsts disk or container file */
 
 int		lastio;		/* what type of I/O, if any, was last done */
 long		nextblk;	/* next block after end of last I/O */
+
+/* A repair is planned before changing the container. Reads see staged writes
+ * in order. This is not a crash-atomic journal: commit marks the pack dirty
+ * first and writes its final, clean label only after the other writes flush.
+ */
+typedef struct repairwrite {
+	struct repairwrite *next;
+	long block, size;
+	byte data[];
+} repairwrite;
+static repairwrite *repairhead, *repairtail;
+static int repairing, committing;
+
+void rbegin (void)
+{
+	if (repairing || committing) rabort (INTERNAL);
+	repairing = TRUE;
+}
+
+static void freerepairs (void)
+{
+	repairwrite *p;
+	while ((p = repairhead) != NULL) {
+		repairhead = p->next;
+		free (p);
+	}
+	repairtail = NULL;
+}
+
+void rcancel (void)
+{
+	if (!repairing && !committing) return;
+	repairing = committing = FALSE;
+	freerepairs ();
+	fiblkw = womsat = FALSE;
+	fiblk = -1;
+	free (sattbufp);
+	sattbufp = NULL;
+	sattsize = 0;
+	if (absflag) absclose ();
+	else if (rstsfile != NULL) {
+		fclose (rstsfile);
+		rstsfile = NULL;
+	}
+}
+
+void rcommit (void)
+{
+	byte final[BLKSIZE], dirty[BLKSIZE];
+	repairwrite *p;
+	long label = dcntolbn (1), before, after;
+	if (!repairing) rabort (INTERNAL);
+	rread (label, BLKSIZE, final);
+	repairing = FALSE;
+	committing = TRUE;
+	rread (label, BLKSIZE, dirty);
+	((packlabel *)dirty)->pstat |= uc_mnt;
+	rwrite (label, BLKSIZE, dirty);
+	if (!absflag && fflush (rstsfile) != 0) rabort (DISKIO);
+	for (p = repairhead; p != NULL; p = p->next) {
+		/* Defer the whole label block, including RDS0 directory entries. */
+		if (p->block <= label && p->block + p->size / BLKSIZE > label) {
+			before = (label - p->block) * BLKSIZE;
+			after = before + BLKSIZE;
+			if (before) rwrite (p->block, before, p->data);
+			if (p->size > after)
+				rwrite (label + 1, p->size - after, p->data + after);
+		} else rwrite (p->block, p->size, p->data);
+	}
+	if (!absflag && fflush (rstsfile) != 0) rabort (DISKIO);
+	rwrite (label, BLKSIZE, final);
+	if (!absflag && fflush (rstsfile) != 0) rabort (DISKIO);
+	committing = FALSE;
+	freerepairs ();
+}
 
 const diskent	sizetbl[] = {
 	{ "rx50", 800, 800, FALSE },
@@ -213,9 +289,9 @@ void ropen (const char *mode)
 
 void rseek (long block)
 {
-	if (block >= diskblocks) rabort(BADBLK);
+	if (block < 0 || block >= diskblocks) rabort(BADBLK);
 	if (absflag)	absseek (block);
-	else		fseek (rstsfile, block * BLKSIZE, SEEK_SET);
+	else if (fseek (rstsfile, block * BLKSIZE, SEEK_SET) != 0) rabort (DISKIO);
 	if (sw.debug != NULL)
 		printf ("seek to: %ld\n", block);
 }
@@ -223,6 +299,10 @@ void rseek (long block)
 void rread (long block, long size, void *buffer)
 {
 	long	iosize;
+	repairwrite *p;
+	long first, last;
+	if (block < 0 || size < 0 || block >= diskblocks ||
+	    size > (diskblocks - block) * BLKSIZE) rabort (BADBLK);
 
 	if (lastio != LASTREAD || nextblk != block) {
 		rseek (block);
@@ -238,11 +318,40 @@ void rread (long block, long size, void *buffer)
 		printf ("size requested: %ld, read: %ld\n", size, iosize);
 	if (iosize != size) rabort(DISKIO);
 	nextblk = block + size / BLKSIZE;
+	if (repairing) {
+		for (p = repairhead; p != NULL; p = p->next) {
+			first = p->block > block ? p->block : block;
+			last = p->block + p->size / BLKSIZE;
+			if (last > block + size / BLKSIZE) last = block + size / BLKSIZE;
+			if (first < last)
+				memcpy ((byte *)buffer + (first - block) * BLKSIZE,
+					p->data + (first - p->block) * BLKSIZE,
+					(last - first) * BLKSIZE);
+		}
+	}
 }
 
 void rwrite (long block, long size, void *buffer)
 {
 	long	iosize;
+	repairwrite *p;
+	if (block < 0 || size < 0 || block >= diskblocks ||
+	    size > (diskblocks - block) * BLKSIZE) rabort (BADBLK);
+	if (repairing) {
+		if (size % BLKSIZE != 0) rabort (INTERNAL);
+		/* A directory write can replace the cached label block. In RDS0
+		 * that block also contains live account/file entries. */
+		if (buffer != fibuf && fiblk >= block && fiblk < block + size / BLKSIZE)
+			fiblk = -1;
+		p = malloc (sizeof (*p) + size);
+		if (p == NULL) rabort (NOMEM);
+		p->next = NULL; p->block = block; p->size = size;
+		memcpy (p->data, buffer, size);
+		if (repairtail != NULL) repairtail->next = p;
+		else repairhead = p;
+		repairtail = p;
+		return;
+	}
 
 	if (lastio != LASTWRITE || nextblk != block) {
 		rseek (block);
@@ -260,6 +369,11 @@ void rwrite (long block, long size, void *buffer)
 
 void rclose ()
 {
+	if (repairing) rcommit ();
 	if (absflag)	absclose ();
-	else		fclose (rstsfile);
+	else if (rstsfile != NULL) {
+		FILE *f = rstsfile;
+		rstsfile = NULL;
+		if (fclose (f) != 0) rabort (DISKIO);
+	}
 }

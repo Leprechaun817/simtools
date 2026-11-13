@@ -65,7 +65,7 @@ int ulk (word link)
 	blk = (link & ul_blo) >> sl_blo;	/* block in cluster */
 	if (sw.debug != NULL) 
 		printf ("ulk(%o), k=%lo, clu=%d, blk=%d, clumap=%d\n", 
-			link, k, clu, blk, clumap->uent[clu]);
+			link, k, clu, blk, clu < 7 ? clumap->uent[clu] : 0);
 	if (blk >= clumap->uclus ||
 	    clu > 6 ||
 	    k == 0760 ||
@@ -361,6 +361,7 @@ word nextppn (firqb *f, int which)	/* find next ppn */
 	word	ppnent;
 	word	curlink;
 	gfdne	*d;
+	byte seen[4096] = {0};
 
 	nextlink = 0;				/* assume nothing found */
 	if (plevel == RDS0)			/* if old pack */
@@ -368,6 +369,7 @@ word nextppn (firqb *f, int which)	/* find next ppn */
 		readlktbl (nextppnlink);		/* read next MFD NE */
 		while (!NULLINK(nextppnlink))
 		{
+			if (seen[(nextppnlink & LINKBITS) >> 4]++) rabort (CORRUPT);
 			readlk (nextppnlink);	/* read it */
 			curlink = nextppnlink;
 			d = use(gfdne,k);
@@ -522,6 +524,7 @@ int nextfileindir (firqb *f)
 	ufdae	*a;
 	ufdrms1	*r;
 	int	ent;
+	byte seen[4096] = {0};
 
 	if ((f->flags & f_name) == 0)	/* null name, open UFD */
 	{
@@ -551,6 +554,7 @@ int nextfileindir (firqb *f)
 	}
 	while (readlk (nextlink))	/* read next entry, if any */
 	{
+		if (seen[(nextlink & LINKBITS) >> 4]++) rabort (CORRUPT);
 		n = use(ufdne,k);
 		f->nlink = nextlink;	/* save this link */
 		nextlink = n->ulnk;	/* link to next entry */
@@ -632,8 +636,10 @@ int nextfile (firqb *f)			/* find next match for this filespec */
 int findfile (firqb *f, const char *name)	/* find a single file by name */
 {
 	parse (name, f);
-	initfilescan (f, gfddcntbl);
-	return (nextfile (f));
+	/* Both callers look up one named system file in one account. Do not
+	 * rescan the same PPN if a damaged old MFD contains a duplicate/cycle. */
+	if (!initfilescan (f, gfddcntbl)) return FALSE;
+	return nextfileindir (f);
 }
 
 int findqb (const firqb *f)		/* find quota block for current ppn */
@@ -1472,8 +1478,10 @@ void findsat (void)
 	}
 	sattsize *= BLKSIZE;		/* now size in bytes */
 	if ((sattbufp = (byte *) malloc (sattsize)) == NULL) rabort(NOMEM);
-	readlk (f.rlink);
+	if (!readlk (f.rlink)) rabort (CORRUPT);
 	sattlbn = dcntolbn(use(ufdre,k)->uent[0]);
+	if (sattlbn < dcs || sattlbn >= diskblocks ||
+	    sattsize / BLKSIZE > diskblocks - sattlbn) rabort (CORRUPT);
 	rread (sattlbn, sattsize, sattbufp);
 	satptr = 0;			/* nothing allocated yet */
 }
@@ -1535,6 +1543,8 @@ void rumountrw (void)			/* dismount (no longer read/write) */
 		rwrite (sattlbn, sattsize, sattbufp);
 	womsat = FALSE;			/* SATT written out if needed */
 	free (sattbufp);		/* release satt memory copy */
+	sattbufp = NULL;
+	sattsize = 0;
 	p->pstat &= ~uc_mnt;		/* mark no longer mounted */
 	if (plevel >= RDS12)		/* if new pack */
 	{

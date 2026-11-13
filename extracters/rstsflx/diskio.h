@@ -6,3 +6,7 @@ extern void rseek(long block);
 extern void rread(long block , long size , void * buffer);
 extern void rwrite(long block , long size , void * buffer);
 extern void rclose(void);
+/* Clean-only deferred writes; cancel is also called by the abort handler. */
+extern void rbegin(void);
+extern void rcommit(void);
+extern void rcancel(void);

@@ -1,4 +1,11 @@
-# FLX / rstsflx Windows GCC qualification
+# FLX / rstsflx initial Windows GCC qualification
+
+This is the preserved initial-build record. The subsequent
+[clean/rebuild qualification](clean-rebuild-validation.md) supersedes its
+RDS0 repair limitation and identifies the current executable. The older hashes,
+test counts, source baseline, and refusal results below describe that initial
+run; they are not current repair claims. The follow-up began at committed
+revision `070f0dcc1259276661b8c650378515510a20c974`.
 
 Date: 2026-11-12. Source baseline: simtools
 `681df6ea8bc110be5d2f997bd4fa723b6c325fba` on `main`, clean at the start of

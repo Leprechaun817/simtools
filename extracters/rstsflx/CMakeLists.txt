@@ -24,7 +24,13 @@ include(CTest)
 if(BUILD_TESTING)
   set(POWERSHELL "C:/Program Files/PowerShell/7/pwsh.exe" CACHE FILEPATH "PowerShell 7")
   foreach(case commands interactive rds0-rk05 rds11-rl02 rds12-rm02 records boundaries
-      directories metadata readonly clean-compress errors)
+      directories metadata readonly clean-compress errors
+      repair-rds0-rk05 repair-rds0-rm02 repair-rds0-pcs16 repair-rds11 repair-rds12-pcs32
+      repair-growth repair-mfd-cycle repair-ufd-cycle repair-rds12-cycle repair-interactive
+      repair-self repair-delete repair-account repair-crosslink repair-retrieval-cycle
+      repair-badb repair-fatal-badb repair-fatal-map repair-fatal-satt repair-readonly
+      repair-mfd-delete repair-rds11-delete repair-rds12-crosslink repair-fatal-lookup
+      repair-badb-pcs16 repair-map-copy repair-shared-dir repair-rds12-shared-dir repair-extent-end)
     add_test(NAME "flx.${case}" COMMAND "${POWERSHELL}" -NoProfile -File
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/Check-Flx.ps1"
       -Executable "$<TARGET_FILE:flx>" -Case "${case}"
@@ -33,5 +39,5 @@ if(BUILD_TESTING)
   endforeach()
 endif()
 install(TARGETS flx RUNTIME DESTINATION bin)
-install(FILES README LICENSE HISTORY BUGS flx.pdf README.cmake.md windows-gcc-validation.md
+install(FILES README LICENSE HISTORY BUGS flx.pdf README.cmake.md windows-gcc-validation.md clean-rebuild-validation.md
   DESTINATION share/doc/flx)

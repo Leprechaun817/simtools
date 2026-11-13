@@ -89,20 +89,20 @@ static retcode yesno (void)
 	if (sw.prot != NULL)
 	{
 		printf ("Yes (read-only)\n");
-		return other;
+		return ok;
 	}	
 	for (;;)
 	{
-		if (fgets (answer, LSIZE, stdin) == NULL) return FALSE;
+		if (fgets (answer, LSIZE, stdin) == NULL) return other;
 		cmdlen = strlen (answer);
-		if (answer[cmdlen - 1] == '\n')
+		if (cmdlen > 0 && answer[cmdlen - 1] == '\n')
 			answer[--cmdlen] = '\0';
 		else
 		{
 			printf ("Reply too long\nYes or No? ");
 			continue;
 		}
-		c = toupper (answer[0]);
+		c = toupper ((unsigned char)answer[0]);
 		if (c == 'Y') return ok;
 		else if (c == 'N' || c == '\0') return other;
 		printf ("Invalid answer\nYes or No? ");
@@ -124,59 +124,36 @@ static void yes (void)
  * the fdcm -- only enough to avoid making a mess of the reads.  
  * it's the caller's job to do more detailed checks.
  *
- * on the assumption that a directory often has a clustersize of 16,
- * and in any case may be more or less contiguous, we start with a 
- * read of 16 blocks.
+ * Read each declared cluster, including contiguous clusters beyond the first
+ * sixteen blocks. Invalid maps are rejected by cleandir before any use.
  */
 static void readdir (word dcn, byte *buf)
 {
 	int	i, clu;
-	long	j, start, blks;
+	long	j, start;
 	fdcm	*m;
-	byte	*p;
 
 	if (sw.debug != NULL)
 		printf ("\nreaddir(%d,%p)", dcn, buf);
 	start = dcntolbn (dcn);
-	if ((diskblocks - start) < 16)
-		blks = diskblocks - start;
-	else	blks = 16;
-	if (blks < 1) rabort (INTERNAL);
-	rread (start, BLKSIZE * blks, buf);
+	memset (buf, 0, dirbufsize);
+	rread (start, BLKSIZE, buf);
 	m = (fdcm *) (buf + 0760);
 	clu = m->uclus;
 	if (dcn != m->uent[0] ||	/* some simple sanity checks... */
-	    clu > blks ||
+	    clu == 0 || clu > 16 ||
 	    (pcs <= 16 && clu < pcs) ||
 	    (clu & (-clu)) != clu)
 		return;
-	p = buf + (BLKSIZE * clu);	/* point to second cluster's data */
-	i = 1;				/* and next r.e. index to use */
-	if (clu != blks)		/* read more than a cluster? */
-	{
-		j = clu / dcs;		/* dcn increment if contiguous */
-		for (;;)
-		{
-			if (i == 7 || i * clu >= blks) return;
-			if (m->uent[i] == 0) return;
-			if (m->uent[i] != m->uent[i - 1] + j) break;
-			if (sw.debug != NULL)
-				printf (" entry %d, dcn %d is contiguous",
-					i, m->uent[i]);
-			i++;
-			p += BLKSIZE * clu;
-		}
-	}
-	for ( ; i < 7; i++)
+	for (i = 0; i < 7; i++)
 	{
 		if (m->uent[i] == 0) return;	/* done */
 		j = dcntolbn (m->uent[i]);
 		if (sw.debug != NULL)
 			printf (" read entry %d, dcn %ld, %d blocks",
 				i, j, clu);
-		if (j >= diskblocks) return;	/* out of range, quit */
-		rread (j, BLKSIZE * clu, p);
-		p += BLKSIZE * clu;
+		if (j >= diskblocks || clu > diskblocks - j) return;
+		rread (j, BLKSIZE * clu, buf + i * clu * BLKSIZE);
 	}
 }
 
@@ -219,11 +196,12 @@ retcode ulk2 (word link, byte *buf)
 	blk = (link & ul_blo) >> sl_blo;	/* block in cluster */
 	if (sw.debug != NULL) 
 		printf ("\nulk2(%o), k=%lo, clu=%d, blk=%d, clumap=%d", 
-			link, k, clu, blk, m->uent[clu]);
+			link, k, clu, blk, clu < 7 ? m->uent[clu] : 0);
 	if (blk >= m->uclus ||
 	    clu > 6 ||
 	    k == 0760 ||
-	    m->uent[clu] == 0)
+	    m->uent[clu] == 0 ||
+	    ((m->uflag & fd_new) && clu == 0 && (blk == 1 || blk == 2)))
 		return badlink;
 	i = blk + dcntolbn(m->uent[clu]);	/* LBN of entry */
 	e = k + (clu * m->uclus + blk) * BLKSIZE;
@@ -337,12 +315,13 @@ static retcode alloc (word pos, int clusiz)
 
 	if (sw.debug != NULL)
 		printf ("\nalloc(%d,%d)", pos, clusiz);
-	if (clusiz < dcs && dcs > 16)
-		clusiz = dcs;		/* deal with directories on large disks */
+	if (clusiz < pcs && pcs > 16)
+		clusiz = pcs;		/* directories occupy at least one pack cluster */
+	if (pos == 0 || clusiz < dcs || clusiz < pcs) return range;
 	if ((pos - 1) % (clusiz / dcs))
 		return align;
 	pos = dcntopcn(pos);		/* convert to pcn */
-	if (pos >= (unsigned long)pcns)
+	if (pos >= (unsigned long)pcns || clusiz / pcs > pcns - (long)pos)
 		return range;
 	clusiz /= pcs;			/* fcs as count of clusters */
 	if (clusiz <= 0)
@@ -397,6 +376,7 @@ static void dealloc (word pos, int clusiz)
 	if (clusiz <= 0)
 		rabort (INTERNAL);
 	s = sattbf2 + pos / 8;		/* byte pointer to start of cluster */
+	clusters -= clusiz;
 	if (clusiz < 8)			/* scanning bitwise */
 	{
 		m = (1 << clusiz) - 1;	/* mask to match on */
@@ -458,7 +438,7 @@ static retcode cleandir (word dcn, int clu,
 	printf ("\rprocessing %s                ", curdir);
 	fflush (stdout);
 	
-	if (dcntopcn (dcn) >= (unsigned long)pcns)
+	if (dcn == 0 || dcntopcn (dcn) >= (unsigned long)pcns)
 	{
 		printf ("\nstarting dcn %d for %s out of range\n",
 			dcn, curdir);
@@ -469,7 +449,7 @@ static retcode cleandir (word dcn, int clu,
 	m = (fdcm *) (buf + 0760);
 	if (clu == 0) clu = m->uclus;
 	if (m->uclus != clu ||
-	    clu > 16 ||
+	    clu == 0 || clu > 16 ||
 	    (clu < 4 && id != UFD) ||
 	    (pcs <= 16 && clu < pcs) ||
 	    (pcs > 16 && clu != 16) ||
@@ -530,38 +510,40 @@ static retcode cleandir (word dcn, int clu,
 			printf ("\nfixed directory type flag bit in cluster map for %s\n",
 				curdir);
 	}
-	ent = 0;
+	ent = -1;
 	/* look for holes in cluster map */
 	for (i = 6; i >= 0; i--)
 	{
 		if (m->uent[i] == 0)
 		{
-			if (ent != 0)
+			if (ent >= 0)
 			{
 				printf ("\nholes in cluster map for %s\n", 
 					curdir);
 				return other;
 			}
 		}
-		else if (dcntopcn (m->uent[i]) >= pcns)
+		else if (dcntopcn (m->uent[i]) >= pcns ||
+		         dcntolbn (m->uent[i]) + clu > diskblocks)
 		{
 			printf ("\ncluster %d out of range in cluster map for %s\n",
 				m->uent[i], curdir);
 			return range;
 		}
-		else
+		else if (ent < 0)
 			ent = i;
 	}
-	if (ent == 0 && m->uent[0] == 0)
+	if (ent < 0)
 	{
 		printf ("\ndirectory %s is empty\n", curdir);
 		return other;
 	}
-	dirblks = ent * clu;		/* count of used directory blocks */
+	dirblks = (ent + 1) * clu;	/* count of used directory blocks */
 	first = m;			/* save copy to first fdcm */
 	ent = -1;			/* no map mismatches yet */
 	for (i = 1; i < dirblks; i++)
 	{
+		if (id != UFD && (i == 1 || i == 2)) continue;
 		m = (fdcm *) (buf + (i * BLKSIZE) + 0760);
 		if (memcmp (first, m, sizeof (fdcm)) == 0) continue;
 		if (first->uclus != m->uclus)
@@ -587,6 +569,13 @@ static retcode cleandir (word dcn, int clu,
 			printf ("\ninconsistent cluster maps for %s\n", curdir);
 			return other;
 		}
+	}
+	if (ent >= 0) {
+		/* A failed directory extension may leave one extra DCN in copies. */
+		for (i = 1; i < dirblks; i++)
+			if (id == UFD || (i != 1 && i != 2))
+				memcpy (buf + i * BLKSIZE + 0760, first, sizeof (*first));
+		MARK (map);
 	}
 
 	/* things look cool, go mark the directory as allocated */
@@ -639,7 +628,11 @@ static void finishdir (byte *buf, byte *map)
 	
 	/* figure out what we're cleaning */
 	lb = (mfdlabel *) buf;
-	if (lb->lppn[0] == 255)
+	if (plevel == RDS0 && buf == mfdbuf) {
+		ufd = 1;
+		strcpy (curdir, "[1,1]");
+	}
+	else if (lb->lppn[0] == 255)
 	{
 		ufd = 0;
 		if (lb->lppn[1] == 255)
@@ -770,6 +763,7 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 	{
 		if (sw.verbose != NULL)
 			printf ("\nfile %s is marked for delete\n", curfile);
+		if (sysfile) rabort (BADPAK);
 		return delete;
 	}
 	if (n->ustat & us_ufd)			/* bogus ufd-like entry */
@@ -779,6 +773,7 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 	}
 	if (n->unam[2] == TMP)			/* .rad50 "tmp" */
 	{
+		if (sysfile) rabort (BADPAK);
 		if (sw.verbose != NULL)
 			printf ("\nfile %s deleted\n", curfile);
 		return delete;
@@ -821,6 +816,7 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 		printf (" in attributes chain for file %s -- will be truncated",
 			curfile);
 		if (sysfile) rabort (BADPAK);
+		yes ();
 		if (prev == 1)
 			a->ulnk = (a->ulnk & ~LINKBITS) | ul_use;
 		else 
@@ -836,6 +832,7 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 		printf (" in retrieval entry chain for file %s\n", curfile);
 		if (sysfile) rabort (BADPAK);
 		printf ("file will be truncated");
+		yes ();
 		if (prev == 1) n->uar = 0;
 		else 
 		{
@@ -878,7 +875,10 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 					if (!sysfile)
 					{
 						printf ("do you want it truncated (if not, it will be flagged)? ");
-						if (yesno () == ok) break;
+						if (yesno () == ok) {
+							dealloc (r->uent[i], clu);
+							break;
+						}
 					}
 					badflag = 1;
 				}
@@ -899,8 +899,10 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 			printf (", dcn %d in file %s", r->uent[i], curfile);
 			if (sysfile) rabort (BADPAK);
 			printf (" -- file will be truncated\n");
+			if (st != badblock) yes ();
 			while (i < 7) r->uent[i++] = 0;
 			r->ulnk = 0;
+			MARK (map);
 			break;
 		}
 		if (i < 7)		/* if we stopped on eof */
@@ -915,9 +917,10 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 			{
 				printf ("\nholes in retrieval entry for %s",
 					curfile);
-				if (sysfile) printf ("\n");
+				if (sysfile) rabort (BADPAK);
 				else
 				{
+					yes ();
 					printf (" fixed");
 					r->ulnk = 0;
 					MARK (map);
@@ -942,13 +945,13 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 			rabort (BADPAK);
 		}
 	}
-	if (!badb && ((n->ustat & us_out) == 0))
+	if ((n->ustat & us_out) == 0)
 	{
 		if (filesize != ((dfsize + clu - 1) & (-clu)))
 		{
 			printf ("\nfile %s size %ld is incorrect (%ld) in ufd",
 				curfile, filesize, dfsize);
-			if (sysfile && !satt) printf ("\n");
+			if (sysfile && !satt && !badb) printf ("\n");
 			else
 			{
 				printf (" -- fixed");
@@ -1014,6 +1017,58 @@ static retcode cleanfile (ufdne *n, byte *buf, byte *map)
 	return ok;
 }
 	
+/* Reclaim blockettes made unreachable by a repair in this same pass. The
+ * caller reserves names; failed files must not retain abandoned attributes.
+ */
+static retcode checkfile (ufdne *n, byte *buf, byte *map)
+{
+	byte saved[dirmapsize];
+	retcode st;
+	word16 *linkp;
+	ufdre *r;
+	ufdae *a;
+	ufdrms1 *rms;
+	unsigned long eof, limit;
+	int dirty;
+	memcpy (saved, map, sizeof (saved));
+	st = cleanfile (n, buf, map);
+	dirty = *map & 1;
+	memcpy (map, saved, sizeof (saved));
+	if (dirty) MARK (map);
+	if (st != ok) return st;
+	linkp = &n->uar;
+	while (ulk2 (*linkp, buf) == ok) {
+		r = (ufdre *)(buf + e);
+		if (r->uent[0] == 0) {
+			*linkp = 0; MARK (map);
+			break;
+		}
+		linkp = &r->ulnk;
+	}
+	if (ulk2 (n->uaa, buf) != ok || allocent (map) != ok) rabort (INTERNAL);
+	a = (ufdae *)(buf + e);
+	if (allocchain (a->ulnk, buf, map, ul_use) ||
+	    allocchain (n->uar, buf, map, 0)) rabort (INTERNAL);
+	/* Preserve an existing logical EOF unless truncation made it impossible. */
+	if (ulk2 (a->ulnk, buf) == ok && !badb && !(n->ustat & us_out)) {
+		rms = (ufdrms1 *)(buf + e);
+		limit = (unsigned long)filesize;
+		if ((((unsigned long)rms->fa_siz[0] << 16) | rms->fa_siz[1]) > limit) {
+			rms->fa_siz[0] = limit >> 16;
+			rms->fa_siz[1] = limit & 0xffff;
+			MARK (map);
+		}
+		eof = ((unsigned long)rms->fa_eof[0] << 16) | rms->fa_eof[1];
+		if (eof > limit + 1 || (eof == limit + 1 && rms->fa_eofb != 0)) {
+			rms->fa_eof[0] = (limit + 1) >> 16;
+			rms->fa_eof[1] = (limit + 1) & 0xffff;
+			rms->fa_eofb = 0;
+			MARK (map);
+		}
+	}
+	return ok;
+}
+
 /* process the content of a ufd.  this is separate from cleanufd so
  * we can call it for the MFD [1,1] of an RDS0 disk.
  * the buf and map pointers point to where the data and blockette maps
@@ -1026,6 +1081,7 @@ static void processufd (byte *buf, byte *map)
 	retcode	st;
 	ufdlabel *l;
 	ufdne	*n;
+	byte seen[4096] = {0};
 
 	l = (ufdlabel *) buf;
 	link = l->ulnk;
@@ -1034,6 +1090,7 @@ static void processufd (byte *buf, byte *map)
 	{
 		st = ulk2 (link, buf);
 		if (st == nullink) break;	/* all done */
+		if (seen[(link & LINKBITS) >> 4]++) st = dup;
 		if (st == ok)
 			st = allocent (map);	/* allocate n.e. */
 		if (st != ok)			/* link bad or duplicate */
@@ -1043,7 +1100,7 @@ static void processufd (byte *buf, byte *map)
 				printf ("\nbad link in label of %s", curdir);
 				printf (" -- UFD will be zeroed");
 				yes ();		/* ask for permission */
-				l->ulnk = 0;
+				l->ulnk = ul_use;
 			}
 			else
 			{
@@ -1059,7 +1116,7 @@ static void processufd (byte *buf, byte *map)
 			break;
 		}
 		n = (ufdne *) (buf + e);
-		st = cleanfile (n, buf, map);
+		st = checkfile (n, buf, map);
 		if (st != ok)
 		{
 			if (st != delete)
@@ -1073,14 +1130,16 @@ static void processufd (byte *buf, byte *map)
 				}
 				yes ();			/* ask for ok */
 			}
+			ulk2 (link, buf); deallocent (map);
 			link = n->ulnk;			/* set next file */
-			if (prev == 1) l->ulnk = link;
+			if (prev == 1) l->ulnk = link | ul_use;
 			else
 			{
 				ulk2 (prev, buf);
 				n = (ufdne *) (buf + e);
 				n->ulnk = link;
 			}
+			MARK (map);
 		}
 		else
 		{
@@ -1094,13 +1153,13 @@ static void processufd (byte *buf, byte *map)
 }
 
 /* go clean a ufd */
-static retcode cleanufd (word dcn, int proj, int prog)
+static retcode cleanufd (word dcn, int proj, int prog, int clu)
 {
 	retcode	st, ret = ok;
 	
 	dirfiles = dirtsize = 0;
 	if (dcn == 0) return 0;			/* nothing there... */
-	st = cleandir (dcn, 0, ufdbuf, ufdmap, proj, prog);
+	st = cleandir (dcn, clu, ufdbuf, ufdmap, proj, prog);
 	if (st != ok)
 	{
 		if (st != badblock) return st;
@@ -1132,7 +1191,7 @@ static retcode cleanufd (word dcn, int proj, int prog)
 /* go clean a gfd */
 static int cleangfd (word dcn, retcode proj)
 {
-	int	prog;
+	int	prog, attrcount;
 	retcode	st, ret = ok;
 	word	prev;
 	word16	*dcnp, *unep;
@@ -1258,7 +1317,7 @@ static int cleangfd (word dcn, retcode proj)
 			MARK (gfdmap);
 			continue;
 		}
-		allocent (gfdmap);		/* allocate name entry */
+		if (allocent (gfdmap) != ok) rabort (BADPAK);
 		st = ulk2 (n->uaa, gfdbuf);
 		if (st != ok)			/* something wrong with a.e. */
 		{
@@ -1275,6 +1334,7 @@ static int cleangfd (word dcn, retcode proj)
 			continue;
 		}
 		a = (gfdae *) (gfdbuf + e);
+		if (allocent (gfdmap) != ok) rabort (BADPAK);
 		if (NULLINK (a->ulnk))
 		{
 			if (a->ulnk != ul_use)
@@ -1293,12 +1353,12 @@ static int cleangfd (word dcn, retcode proj)
 			a->ulnk = ul_use;
 			MARK (gfdmap);
 		}
-		allocent (gfdmap);		/* allocate acct. entry */
 		q = NULL;			/* assume no quota block */
 		if (plevel == RDS12 && (proj != 0 || prog != 1))
 		{
 			st = ulk2 (n->ulnk, gfdbuf);	/* get attributes */
-			while (st == ok)
+			attrcount = 0;
+			while (st == ok && attrcount++ < (int)(dirbufsize / sizeof (gfdne)))
 			{
 				at = (uattr *) (gfdbuf + e);
 				if (at->uatyp == aa_quo)
@@ -1350,7 +1410,7 @@ static int cleangfd (word dcn, retcode proj)
 				printf ("\nfixed account [%d,%d] dcn in n.e.\n",
 					proj, prog);
 		}
-		st = cleanufd (*dcnp, proj, prog);
+		st = cleanufd (*dcnp, proj, prog, a->uclus);
 		if (st == badblock)		/* bad block but it worked */
 		{
 			a->ulnk |= ul_bad;	/* mark bad block in account */
@@ -1363,6 +1423,9 @@ static int cleangfd (word dcn, retcode proj)
 				proj, prog);
 			yes ();				/* get approval */
 			*dcnp = 0;
+			n->uar = 0;
+			dirfiles = dirtsize = 0;
+			st = ok; /* The now-empty account also needs its quota corrected. */
 			MARK (gfdmap);
 		}
 		if ((st == ok || st == badblock) && q != NULL)
@@ -1474,11 +1537,129 @@ static void cleannewmfd (void)
 /* go clean the mfd for an old format (RDS0) disk */
 static void cleanoldmfd (void)
 {
-	retcode	ret;
-	
-	ret = cleandir (mfddcn, 0, mfdbuf, mfdmap, 1, 1);
-	if (sw.debug != NULL)
-		printf ("\ncleandir returned %d\n", ret);
+	word links[dirbufsize / sizeof (gfdne)], link, prev;
+	byte accounts[8192] = {0};
+	unsigned count = 0, idx;
+	int proj, prog, special, remove, have01 = 0, have11 = 0;
+	long mfiles = 0, mblocks = 0;
+	retcode st;
+	gfdne *n;
+	gfdae *a;
+	packlabel *label;
+	fdcm *m;
+
+	st = cleandir (mfddcn, 0, mfdbuf, mfdmap, 1, 1);
+	if (st != ok) rabort (BADPAK); /* The shared root cannot be discarded. */
+	label = (packlabel *)mfdbuf;
+	m = (fdcm *)(mfdbuf + 0760);
+	link = label->ulnk;
+	prev = 0;
+	/* Reserve every name entry before attributes can claim a later name.
+	 * The map also bounds cycles without trusting an on-disk entry count.
+	 */
+	while (!NULLINK (link)) {
+		st = ulk2 (link, mfdbuf);
+		if (st == ok) st = allocent (mfdmap);
+		if (st != ok) {
+			printf ("\nbad or cyclic link in RDS0 MFD -- remaining entries will be lost");
+			yes ();
+			if (prev == 0) label->ulnk = 0;
+			else { ulk2 (prev, mfdbuf); *(word16 *)(mfdbuf + e) = 0; }
+			MARK (mfdmap);
+			break;
+		}
+		links[count++] = link;
+		n = (gfdne *)(mfdbuf + e);
+		if ((n->ustat & (us_ufd | us_del)) == us_ufd) {
+			if (n->unam[0] == 1) have01 = 1;
+			if (n->unam[0] == PPN11) have11 = 1;
+		}
+		prev = link;
+		link = n->ulnk;
+	}
+	if (!have01 || !have11) {
+		printf ("\nRDS0 MFD is missing a live [0,1] or [1,1] account\n");
+		rabort (BADPAK);
+	}
+	prev = 0;
+	for (idx = 0; idx < count; idx++) {
+		link = links[idx];
+		ulk2 (link, mfdbuf);
+		n = (gfdne *)(mfdbuf + e);
+		remove = 0;
+		curproj = curprog = 1;
+		strcpy (curdir, "[1,1]");
+		if (!(n->ustat & us_ufd)) {
+			st = checkfile ((ufdne *)n, mfdbuf, mfdmap);
+			if (st != ok) {
+				if (n->ustat & us_nok) rabort (BADPAK);
+				if (st != delete) yes ();
+				remove = 1;
+			} else { files++; mfiles++; mblocks += filesize; }
+		} else {
+			proj = n->unam[0] >> 8;
+			prog = n->unam[0] & 255;
+			special = n->unam[0] == 1 || n->unam[0] == PPN11;
+			if (n->ustat & us_del) {
+				printf ("\naccount [%d,%d] marked for delete\n", proj, prog);
+				if (special) rabort (BADPAK);
+				remove = 1;
+			} else if (proj == 255 || prog == 255 || (proj == 0 && prog != 1) ||
+			           (accounts[n->unam[0] / 8] & (1 << (n->unam[0] % 8)))) {
+				printf ("\ninvalid or duplicate account [%d,%d] -- account will be deleted", proj, prog);
+				if (special) rabort (BADPAK);
+				yes ();
+				remove = 1;
+			}
+			if (!remove) {
+				st = ulk2 (n->uaa, mfdbuf);
+				if (st == ok) st = allocent (mfdmap);
+				if (st != ok) {
+					printf ("\ninvalid or shared accounting entry for [%d,%d] -- account will be deleted", proj, prog);
+					if (special) rabort (BADPAK);
+					yes ();
+					remove = 1;
+				} else {
+					a = (gfdae *)(mfdbuf + e);
+					if (a->ulnk != ul_use) { a->ulnk = ul_use; MARK (mfdmap); }
+					if (n->unam[0] == PPN11) {
+						/* [1,1] is this very MFD, not a second allocation. */
+						if (n->uar != mfddcn || a->uclus != m->uclus) {
+							printf ("\nfixed RDS0 [1,1] self-reference\n");
+							n->uar = mfddcn; a->uclus = m->uclus; MARK (mfdmap);
+						}
+						st = ok;
+					} else if (a->uclus < pcs || a->uclus > 16 ||
+					           (a->uclus & -a->uclus) != a->uclus) {
+						printf ("\ninvalid account clustersize for [%d,%d]\n", proj, prog);
+						if (special) rabort (BADPAK);
+						printf ("account will be deleted"); yes ();
+						ulk2 (n->uaa, mfdbuf); deallocent (mfdmap);
+						remove = 1;
+						st = ok;
+					} else st = cleanufd (n->uar, proj, prog, a->uclus);
+					if (st != ok && st != badblock) {
+						if (special) rabort (BADPAK);
+						printf ("\naccount [%d,%d] will be zeroed", proj, prog);
+						yes ();
+						n->uar = 0; MARK (mfdmap);
+					}
+					if (st == badblock) { a->ulnk |= ul_bad; MARK (mfdmap); }
+				}
+				if (!remove) accounts[n->unam[0] / 8] |= 1 << (n->unam[0] % 8);
+			}
+		}
+		if (remove) {
+			word next = n->ulnk;
+			ulk2 (link, mfdbuf); deallocent (mfdmap);
+			if (prev == 0) label->ulnk = next;
+			else { ulk2 (prev, mfdbuf); *(word16 *)(mfdbuf + e) = next; }
+			MARK (mfdmap);
+		} else prev = link;
+	}
+	ufds++; /* The [1,1] directory was processed in place. */
+	if (sw.verbose != NULL)
+		printf ("\ntotal of %ld files, %ld blocks in [1,1]\n", mfiles, mblocks);
 	finishdir (mfdbuf, mfdmap);
 }
 
@@ -1495,7 +1676,7 @@ static void allocbadb (void)
 	int	i, clurat, fsize = 0;
 	retcode	st;
 	word	link, dcn;
-	word16	*prevlink;
+	byte seen[4096] = {0};
 	
 	memset (badbmap, 0, sattsize);		/* initially no bad blocks */
 	if (!findfile (&f, "[0,1]badb.sys"))
@@ -1511,21 +1692,18 @@ static void allocbadb (void)
 	}
 	clurat = pcs / dcs;
 	link = f.rlink;
-	readlk (f.nlink);
-	prevlink = &(use (ufdne, k)->uar);	/* in case link is bad */
 	for (;;)
 	{
+		if (!NULLINK (link) && seen[(link & LINKBITS) >> 4]++) {
+			printf ("\ncyclic retrieval chain in [0,1]badb.sys\n");
+			rabort (BADPAK);
+		}
 		st = readlkchk (link);
 		if (st == nullink) break;	/* null link */
 		else if (st != ok)
 		{
-			printf ("\nbad link in [0,1]badb.sys -- truncated\n");
-			if (sw.prot == NULL)
-			{
-				*prevlink = 0;
-				fbwrite ();
-			}
-			break;
+			printf ("\nbad link in [0,1]badb.sys\n");
+			rabort (BADPAK); /* Unknown bad clusters must not become free. */
 		}
 		r = use (ufdre, k);
 		for (i = 0; i < 7; i++)
@@ -1533,22 +1711,22 @@ static void allocbadb (void)
 			dcn = r->uent[i];
 			if (dcn == 0) break;
 			fsize += pcs;		/* accumulate badb.sys size */
-			if (dcn % clurat)	/* check for PCS boundary */
+			if ((dcn - 1) % clurat)	/* DCNs are one-based */
 			{
 				printf ("\nwarning, [0,1]badb.sys dcn %d not on PCS boundary\n", dcn);
-				dcn = dcn / clurat * clurat;
+				rabort (BADPAK);
 			}
 			st = alloc (dcn, pcs);
-			if (st == 3)
+			if (st == range)
 			{
 				printf ("\nwarning, [0,1]badb.sys dcn %d is too large\n", dcn);
+				rabort (BADPAK);
 			}
 			else if (st)
 			{
 				printf ("\nwarning, [0,1]badb.sys dcn %d doubly allocated\n", dcn);
 			}
 		}
-		prevlink = &(r->ulnk);
 		link = r->ulnk;
 	}
 	readlk (f.alink);
@@ -1647,15 +1825,6 @@ void doclean (int argc, char **argv)
 		ropen (DWRITEMODE);	/* open it first */
 	else	ropen (DREADMODE);
 	readlabel ();			/* read and remember label data */
-	/* The old-format path below never walks the mixed account/file chain.
-	 * Rebuilding its bitmap would free live data. Refuse both modes until
-	 * that traversal has an independently verified implementation.
-	 */
-	if (plevel == RDS0) {
-		printf ("RDS 0.0 clean/rebuild is not implemented; disk unchanged\n");
-		rclose ();
-		rabort (NOMSG);
-	}
 	if (pcs < dcs || pcs > 64 || (pcs > 16 && plevel < RDS12) ||
 	    (pcs & -pcs) != pcs)
 	{
@@ -1671,6 +1840,7 @@ void doclean (int argc, char **argv)
 	    sw.overwrite == NULL &&
 	    sw.prot == NULL)
 		rabort (ROPACK);
+	rbegin ();			/* defer writes until the complete scan succeeds */
 	sattsize = 0;			/* SATT not looked up yet */
 	womsat = FALSE;			/*  and SATT is clean */
 	fiblkw = FALSE;			/*  FIBUF ditto */
@@ -1782,6 +1952,6 @@ void doclean (int argc, char **argv)
 	
 	if (sw.prot == NULL)
 		rumountrw ();		/* write satt, mark clean, and close */
-	else	rumount ();
+	else	rcancel ();		/* discard the read-only plan and close */
 }
 

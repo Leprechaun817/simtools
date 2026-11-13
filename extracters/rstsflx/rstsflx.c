@@ -37,6 +37,7 @@ static jmp_buf mainbuf;
 
 void doabort(int status, const char *srcfile, int srcline)
 {
+	rcancel ();                 /* discard an incomplete clean plan */
 	switch (status)
 	{
 	    case BADRE: 

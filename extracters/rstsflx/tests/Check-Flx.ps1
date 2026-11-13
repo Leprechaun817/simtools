@@ -17,6 +17,7 @@ $script:sequence = 0
 $receipt = [ordered]@{case=$Case; executable=$Executable;
     executableSha256=(Get-FileHash -LiteralPath $Executable).Hash;
     testScriptSha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash;
+    cleanCasesSha256=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'Clean-Cases.ps1')).Hash;
     startedUtc=[DateTime]::UtcNow.ToString('o'); mediaDirectory=$work;
     passed=$false; cleanupVerified=$false; error=$null}
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
@@ -84,7 +85,10 @@ try {
     [IO.File]::WriteAllBytes((Join-Path $work 'input.bin'),$payload)
     [IO.File]::WriteAllBytes((Join-Path $work 'input.txt'),$ascii)
     [IO.File]::WriteAllBytes((Join-Path $work 'empty.bin'),[byte[]]@())
-    if ($Case -eq 'commands') {
+    if ($Case.StartsWith('repair-')) {
+        . (Join-Path $PSScriptRoot 'Clean-Cases.ps1')
+        Invoke-CleanCase $Case
+    } elseif ($Case -eq 'commands') {
         $out=Run-Flx @() "`r`nexit`r`n"
         Assert-True ($out -match 'FLX v2.6') 'Version banner missing'
         Run-Flx @('nonsense') '' 1 'Unrecognized command' | Out-Null
@@ -130,9 +134,11 @@ try {
         Disk @('list','[1,2]RENAM.BIN') 'No files matching' | Out-Null
         if ($revision -eq '0.0') {
             $hash=(Get-FileHash -LiteralPath (Join-Path $work 'disk.img')).Hash
-            Disk @('clean','-protect') 'RDS 0.0 clean/rebuild is not implemented' 1 | Out-Null
-            Disk @('clean') 'RDS 0.0 clean/rebuild is not implemented' 1 | Out-Null
-            Assert-True ((Get-FileHash -LiteralPath (Join-Path $work 'disk.img')).Hash -eq $hash) 'Unsupported RDS0 clean changed image'
+            Disk @('clean','-protect','-verbose') | Out-Null
+            Assert-True ((Get-FileHash -LiteralPath (Join-Path $work 'disk.img')).Hash -eq $hash) 'Read-only RDS0 clean changed image'
+            Disk @('rebuild','-verbose') | Out-Null
+            Disk @('get','-ascii','[1,2]TEXT.TXT','rebuilt.txt') | Out-Null
+            Check-Bytes 'rebuilt.txt' $ascii
         } else { Disk @('clean','-protect','-verbose') | Out-Null }
     } elseif ($Case -eq 'boundaries') {
         New-Volume

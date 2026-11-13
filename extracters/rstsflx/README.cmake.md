@@ -6,7 +6,8 @@ upstream executable name**. The Linux and DOS makefiles both build FLX from
 
 FLX v2.6 manipulates RSTS disk-container files from the Windows host. This build
 does not require SIMH, DOSBox, MSVC, or a running RSTS guest. Its qualified scope
-and remaining limitations are in [windows-gcc-validation.md](windows-gcc-validation.md).
+and remaining limitations are in the [initial qualification](windows-gcc-validation.md)
+and the newer [clean/rebuild qualification](clean-rebuild-validation.md).
 The original [manual](flx.pdf), [license](LICENSE), [history](HISTORY), and
 [upstream bug list](BUGS) remain available.
 
@@ -91,8 +92,8 @@ shell wildcard expansion.
 | `protect -protect FILE`, `protect -unprotect FILE` | Set/clear the no-delete flag. |
 | `rts FILE RT11` | Change the runtime-system name recorded on a file. |
 | `identify`, `allocation -brief` | Inspect pack geometry/flags and block allocation. |
-| `clean -protect` | Inspect RDS1 without writing. **RDS0 clean/rebuild is unavailable.** |
-| `clean`, `rebuild` | RDS1 checking/repair. Healthy images were tested; arbitrary corruption recovery was not. |
+| `clean -protect -verbose` | Inspect RDS0, RDS1.1, or RDS1.2 without changing the container; report proposed repairs. |
+| `clean`, `rebuild` | Aliases for the same checker and allocation-table reconstruction. The RDS0 mixed account/file traversal is implemented. See the repair qualification for tested faults and limits. |
 | `compress` | Zero unused clusters; this does not change the container file's length. |
 | `-query`, `-verbose`, `-clustersize N` | Per-file confirmation, progress text, and applicable cluster-size selection. |
 | `-Write` | Override pack read-only/protection checks where allowed; does not override the no-delete flag. |
@@ -111,11 +112,25 @@ and a separately tested `hook` operation.
 
 ## Known limitations and test-media policy
 
-**RDS 0.0 `clean`/`rebuild` is explicitly refused in both write and read-only
-modes.** The upstream `cleanoldmfd` path never traverses the mixed account/file
-chain before constructing the new allocation bitmap. Completing and validating
-that path remains separate work. The refusal returns failure and preserves the
-container; it is not counted as successful RDS0 checking/repair.
+`clean` and `rebuild` now traverse the RDS0 MFD, including ordinary `[1,1]`
+files, account records, empty accounts, and the MFD's self-reference. The former
+RDS0 refusal has been removed. Shared directory, retrieval, and allocation
+checks also apply to RDS1.1 and RDS1.2.
+
+Use `clean -protect -verbose -disk PATH` to preview repairs. Read-only mode
+automatically answers repair prompts for its simulation, with no image writes.
+Writable repairs that remove/truncate reachable data require confirmation;
+EOF or a negative answer at a mandatory prompt aborts. Entries already marked
+for deletion and temporary `.TMP` files retain the upstream automatic cleanup
+behavior, except protected/system files cannot be silently removed.
+
+Writable clean stages metadata in memory until the complete scan succeeds.
+A refused repair or fatal scan error discards those changes. During the write
+phase, the pack is marked dirty first; its clean label is written last after
+other writes are flushed. This is not a crash-atomic journal or a guarantee
+against power loss. Unrecoverable root/system-file damage is rejected rather
+than inventing missing allocation information. Preview success means the scan
+completed, not that the image contained no errors; inspect its diagnostics.
 
 Many inherited command-level errors print diagnostics but still return process
 exit code zero. Parser errors and fatal aborts return failure. Automation must
